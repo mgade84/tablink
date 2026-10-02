@@ -34,6 +34,15 @@ scripts/run.sh --bitrate 20000 --fps 60 --encoder vaapi
 ```
 Then arrange the new display in Settings → Displays.
 
+## Start automatically on plug-in
+```bash
+scripts/install-autostart.sh                 # systemd user service, starts with your session
+TABLINK_ARGS="--scale 1" scripts/install-autostart.sh   # same, with custom host options
+scripts/install-autostart.sh --uninstall
+journalctl --user -u tablink -f              # logs
+```
+The service keeps the host listening on loopback and runs `scripts/daemon.sh`. Each time the tablet is plugged in, it tunnels the port, wakes the tablet and opens TabLink. Don't use `scripts/run.sh` while the service is running, because both want port 27183. Stop the service first with `systemctl --user stop tablink`. If several Android devices are attached, set `ANDROID_SERIAL`.
+
 ## Checking the host without a tablet
 ```bash
 cd host
