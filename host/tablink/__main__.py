@@ -19,6 +19,8 @@ def parse_args(argv):
                    help="monitor size relative to the tablet's native resolution (e.g. 0.5)")
     p.add_argument("--position", choices=["left", "right", "above", "below"],
                    help="where to put the tablet relative to the main display (default: GNOME's choice, right)")
+    p.add_argument("--no-touch", dest="touch", action="store_false",
+                   help="don't pass touch input from the tablet to the desktop")
     p.add_argument("--selftest", nargs="?", const="1920x1200", metavar="WxH",
                    help="create a virtual monitor without a tablet and record 5s to selftest.h264")
     p.add_argument("-v", "--verbose", action="store_true")

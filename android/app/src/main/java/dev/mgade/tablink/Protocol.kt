@@ -15,6 +15,11 @@ object Protocol {
     const val CONFIG = 0x02  // host -> app: u16 width, u16 height
     const val VISIBILITY = 0x03  // app -> host: u8 visible (0 pauses video, monitor stays)
     const val VIDEO = 0x10   // host -> app: u64 ptsUs + Annex-B H.264 access unit
+    const val TOUCH = 0x20   // app -> host: u8 action, u8 slot, f32 x, f32 y (monitor pixels)
+
+    const val TOUCH_DOWN = 0
+    const val TOUCH_MOVE = 1
+    const val TOUCH_UP = 2
     const val PING = 0x30
     const val PONG = 0x31
 
@@ -37,6 +42,16 @@ object Protocol {
         out.writeInt(payload.size)
         out.write(payload)
         out.flush()
+    }
+
+    /** Appends one TOUCH message to [out]. */
+    fun writeTouch(out: DataOutputStream, action: Int, slot: Int, x: Float, y: Float) {
+        out.writeByte(TOUCH)
+        out.writeInt(10)
+        out.writeByte(action)
+        out.writeByte(slot)
+        out.writeFloat(x)
+        out.writeFloat(y)
     }
 
     fun read(input: DataInputStream): Message {

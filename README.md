@@ -2,20 +2,23 @@
 
 <img src="docs/icon.svg" align="right" alt="TabLink icon: a monitor with Tux and a tablet with the Android robot, joined by a cable" width="128" height="128">
 
-Use an Android tablet as an **extended second monitor** for an Ubuntu (GNOME/Wayland) desktop over a USB cable. It is display-only; nothing is sent back from the tablet.
+Use an Android tablet as an **extended second monitor** for an Ubuntu (GNOME/Wayland) desktop over a USB cable, with touch input (multi-touch and S Pen) back to the desktop.
 
 ## How it works
 
 ```
 GNOME virtual monitor ─▶ PipeWire ─▶ VAAPI H.264 ─▶ TCP 127.0.0.1:27183
-                                                         │  adb reverse (USB)
-Tablet app ◀── MediaCodec (low latency) ◀───────────────┘
+         ▲                                               │  adb reverse (USB)
+         │                                               ▼
+Mutter RemoteDesktop ◀── touch events ◀──── Tablet app (MediaCodec, low latency)
 ```
 
-- `host/` (Python): asks Mutter (`org.gnome.Mutter.ScreenCast.RecordVirtual`) to create a virtual monitor the size of the tablet's screen, encodes it with GStreamer, and serves it on loopback. Its `scripts/` install the app on the tablet whenever it's plugged in and start the host.
-- `android/` (Kotlin): a fullscreen app that connects to `127.0.0.1:27183` (forwarded over USB by `adb reverse`), sends its screen size, and decodes the stream onto a `SurfaceView`.
+- `host/` (Python): asks Mutter (`org.gnome.Mutter.ScreenCast.RecordVirtual`) to create a virtual monitor the size of the tablet's screen, encodes it with GStreamer, and serves it on loopback. Touches from the tablet are injected into that monitor through a linked `org.gnome.Mutter.RemoteDesktop` session. Its `scripts/` install the app on the tablet whenever it's plugged in and start the host.
+- `android/` (Kotlin): a fullscreen app that connects to `127.0.0.1:27183` (forwarded over USB by `adb reverse`), sends its screen size, decodes the stream onto a `SurfaceView`, and sends touches back.
 
 The two folders are independent projects, each with its own scripts and `Dockerfile`. The virtual monitor works like a real one. You can arrange it in **Settings → Displays**, and it goes away when the tablet disconnects.
+
+The tablet works as a touch screen for its part of the desktop. Each finger is a separate touch point, and the S Pen counts as one too. Apps that support touch on Wayland (GNOME apps, Firefox, Chrome) get real touch events, and GNOME turns them into mouse clicks for the rest. While it's connected, GNOME may show a remote-control indicator in the top bar. If you don't want touch, run the host with `--no-touch`.
 
 You can switch to other apps on the tablet without losing the monitor. The connection runs in a foreground service, shown as a "TabLink" notification. While the app is in the background the desktop keeps the virtual monitor and only pauses the video, and the picture comes back when you return. Tap **Disconnect** in the notification to end the session. If the desktop is gone and the app has been in the background for a minute, the service stops by itself.
 
@@ -74,6 +77,7 @@ host/scripts/run.sh                  # installs the app if needed, tunnels the p
 host/scripts/run.sh --scale 1        # full tablet resolution (sharpest; set GNOME scale to 200%)
 host/scripts/run.sh --position left  # put the tablet left of the main display (also: right, above, below)
 host/scripts/run.sh --bitrate 20000 --fps 60 --encoder vaapi
+host/scripts/run.sh --no-touch       # display only, no input from the tablet
 ```
 Without `--position`, GNOME puts the tablet to the right of your main display. You can still drag it anywhere in Settings → Displays for the current session.
 
@@ -111,7 +115,7 @@ python3 -m unittest discover -s tests
 | Static screen shows few frames | That's expected: Mutter only sends frames when something changes, plus a 1 s keepalive. |
 
 ## Protocol
-Big-endian `[type:u8][len:u32][payload]`. `HELLO` (app→host: w, h, dpi, version), `CONFIG` (host→app: w, h), `VISIBILITY` (app→host: u8; 0 pauses video while the app is in the background, 1 resumes on a keyframe), `VIDEO` (u64 pts µs + Annex-B access unit), `PING`/`PONG`. See `host/tablink/protocol.py` and `android/.../Protocol.kt`.
+Big-endian `[type:u8][len:u32][payload]`. `HELLO` (app→host: w, h, dpi, version), `CONFIG` (host→app: w, h), `VISIBILITY` (app→host: u8; 0 pauses video while the app is in the background, 1 resumes on a keyframe), `VIDEO` (u64 pts µs + Annex-B access unit), `TOUCH` (app→host: u8 action 0 down/1 move/2 up, u8 slot, f32 x, f32 y in monitor pixels), `PING`/`PONG`. See `host/tablink/protocol.py` and `android/.../Protocol.kt`.
 
 ## License
 [MIT](LICENSE) © 2026 mgade84

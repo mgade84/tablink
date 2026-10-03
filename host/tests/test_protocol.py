@@ -38,6 +38,11 @@ class ProtocolTest(unittest.TestCase):
         msgs = protocol.Reader().feed(protocol.pack_visibility(False) + protocol.pack_visibility(True))
         self.assertEqual(msgs, [(protocol.VISIBILITY, b"\x00"), (protocol.VISIBILITY, b"\x01")])
 
+    def test_touch_roundtrip(self):
+        ((msg_type, payload),) = protocol.Reader().feed(protocol.pack_touch(1, 3, 740.5, 12.25))
+        self.assertEqual(msg_type, protocol.TOUCH)
+        self.assertEqual(protocol.unpack_touch(payload), (1, 3, 740.5, 12.25))
+
     def test_reader_rejects_oversized(self):
         with self.assertRaises(protocol.ProtocolError):
             protocol.Reader().feed(struct.pack(">BI", protocol.PING, 10_000_000))

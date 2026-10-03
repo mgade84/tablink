@@ -1,8 +1,10 @@
 package dev.mgade.tablink
 
 import android.util.Log
+import android.view.MotionEvent
 import android.view.Surface
 import java.io.BufferedInputStream
+import java.io.ByteArrayOutputStream
 import java.io.BufferedOutputStream
 import java.io.DataInputStream
 import java.io.DataOutputStream
@@ -87,6 +89,41 @@ class Connection(
             Decoder(s, videoWidth, videoHeight) { onStatus(null) }
         } else {
             null
+        }
+    }
+
+    /**
+     * Forward a touch event on a view of [viewWidth]x[viewHeight] pixels, scaled to
+     * the host's virtual monitor. Each finger is a slot (its pointer id).
+     */
+    fun sendTouch(event: MotionEvent, viewWidth: Int, viewHeight: Int) {
+        val out = output ?: return
+        val (sx, sy) = synchronized(lock) {
+            if (videoWidth == 0) return
+            Pair(videoWidth.toFloat() / viewWidth, videoHeight.toFloat() / viewHeight)
+        }
+        val bytes = ByteArrayOutputStream(64)
+        val data = DataOutputStream(bytes)
+        fun touch(action: Int, index: Int) = Protocol.writeTouch(
+            data, action, event.getPointerId(index) and 0xff, event.getX(index) * sx, event.getY(index) * sy)
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> touch(Protocol.TOUCH_DOWN, event.actionIndex)
+            MotionEvent.ACTION_MOVE -> for (i in 0 until event.pointerCount) touch(Protocol.TOUCH_MOVE, i)
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP -> touch(Protocol.TOUCH_UP, event.actionIndex)
+            MotionEvent.ACTION_CANCEL -> for (i in 0 until event.pointerCount) touch(Protocol.TOUCH_UP, i)
+            else -> return
+        }
+        val payload = bytes.toByteArray()
+        try {
+            sender.execute {
+                try {
+                    synchronized(out) { out.write(payload); out.flush() }
+                } catch (e: IOException) {
+                    Log.d(TAG, "touch: ${e.message}")
+                }
+            }
+        } catch (_: java.util.concurrent.RejectedExecutionException) {
+            // stopped
         }
     }
 

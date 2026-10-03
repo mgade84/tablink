@@ -76,6 +76,11 @@ class TabLinkService : Service() {
         connection!!.attach(surface)
     }
 
+    /** Forward a touch on the activity's view (main thread). */
+    fun touch(event: android.view.MotionEvent, viewWidth: Int, viewHeight: Int) {
+        connection?.sendTouch(event, viewWidth, viewHeight)
+    }
+
     /** The activity went to the background. The connection keeps running. */
     fun detach() {
         attached = false

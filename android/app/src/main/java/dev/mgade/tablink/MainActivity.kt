@@ -54,6 +54,11 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
 
         val surfaceView = SurfaceView(this)
         surfaceView.holder.addCallback(this)
+        // The desktop is a touch screen now: every touch goes to the host.
+        surfaceView.setOnTouchListener { view, event ->
+            service?.touch(event, view.width, view.height)
+            true
+        }
         status = TextView(this).apply {
             setTextColor(Color.WHITE)
             setBackgroundColor(Color.BLACK)

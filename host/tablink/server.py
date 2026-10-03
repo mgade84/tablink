@@ -56,7 +56,8 @@ class Session:
                      self.addr, hello["width"], hello["height"], hello["dpi"],
                      hello["version"], width, height)
 
-            self.monitor = VirtualMonitor()
+            self.size = (width, height)
+            self.monitor = VirtualMonitor(touch=self.opts.touch)
             node_id = self.monitor.start()
             self._send(protocol.pack_config(width, height))
 
@@ -127,7 +128,9 @@ class Session:
                 if not data:
                     break
                 for msg_type, payload in reader.feed(data):
-                    if msg_type == protocol.VISIBILITY and len(payload) == 1:
+                    if msg_type == protocol.TOUCH:
+                        self._on_touch(payload)
+                    elif msg_type == protocol.VISIBILITY and len(payload) == 1:
                         self._set_visible(bool(payload[0]))
                     elif msg_type == protocol.PING:
                         self._send(protocol.frame(protocol.PONG, payload))
@@ -138,6 +141,13 @@ class Session:
         except (OSError, protocol.ProtocolError) as e:
             log.debug("reader: %s", e)
         self.stopped.set()
+
+    def _on_touch(self, payload):
+        action, slot, x, y = protocol.unpack_touch(payload)
+        monitor = self.monitor  # None once the session is closing
+        if monitor:
+            w, h = self.size
+            monitor.touch(action, slot, min(max(x, 0.0), w - 1), min(max(y, 0.0), h - 1))
 
     def _set_visible(self, visible):
         """The app went to the background (no surface) or came back. Keep the

@@ -14,6 +14,8 @@ VISIBILITY = 0x03  # app -> host: u8 visible. While 0 the host sends no video
                    # but keeps the virtual monitor; on 1 it restarts on a keyframe.
                    # Apps that never send it are treated as always visible.
 VIDEO = 0x10   # host -> app: u64 ptsUs + Annex-B H.264 access unit
+TOUCH = 0x20   # app -> host: u8 action (0 down, 1 move, 2 up), u8 slot, f32 x, f32 y
+               # (x/y in virtual-monitor pixels). Ignored when the host runs with --no-touch.
 PING = 0x30    # either way: u64 timestamp (opaque to the receiver)
 PONG = 0x31    # echo of PING payload
 
@@ -21,6 +23,7 @@ HEADER = struct.Struct(">BI")
 HELLO_BODY = struct.Struct(">HHHB")
 CONFIG_BODY = struct.Struct(">HH")
 PTS = struct.Struct(">Q")
+TOUCH_BODY = struct.Struct(">BBff")
 
 MAX_INBOUND_PAYLOAD = 64 * 1024  # the app only ever sends tiny messages
 
@@ -54,6 +57,16 @@ def pack_video(pts_us, access_unit):
 
 def pack_visibility(visible):
     return frame(VISIBILITY, bytes([1 if visible else 0]))
+
+
+def pack_touch(action, slot, x, y):
+    return frame(TOUCH, TOUCH_BODY.pack(action, slot, x, y))
+
+
+def unpack_touch(payload):
+    if len(payload) != TOUCH_BODY.size:
+        raise ProtocolError(f"bad TOUCH length {len(payload)}")
+    return TOUCH_BODY.unpack(payload)
 
 
 def pack_ping(stamp):

@@ -12,7 +12,7 @@ Guidance for AI coding agents (Claude Code, Codex, etc.) working on TabLink. For
 
 ## Layout
 - `host/tablink/` (Python, runs on the Ubuntu desktop)
-  - `mutter.py`: `org.gnome.Mutter.ScreenCast` `RecordVirtual` creates the virtual monitor
+  - `mutter.py`: `org.gnome.Mutter.ScreenCast` `RecordVirtual` creates the virtual monitor. With touch (the default), the ScreenCast session is linked to an `org.gnome.Mutter.RemoteDesktop` session that injects `NotifyTouch*` events relative to the stream.
   - `pipeline.py`: GStreamer `pipewiresrc` → VAAPI (or x264) H.264 → appsink
   - `server.py`: loopback TCP server, one tablet at a time, threads + GLib main loop
   - `display.py`: `org.gnome.Mutter.DisplayConfig` places the monitor (`--position`)
@@ -20,7 +20,7 @@ Guidance for AI coding agents (Claude Code, Codex, etc.) working on TabLink. For
 - `android/app/src/main/java/dev/mgade/tablink/`
   - `TabLinkService`: foreground service (`connectedDevice`) that owns the connection, so the desktop monitor survives the app going to the background
   - `MainActivity`: fullscreen SurfaceView that binds the service and attaches/detaches its surface
-  - `Connection`: socket, reconnect loop and VISIBILITY messages. The decoder only exists while a surface is attached.
+  - `Connection`: socket, reconnect loop, VISIBILITY and TOUCH messages (scaled from view pixels to monitor pixels). The decoder only exists while a surface is attached.
   - `Decoder` (MediaCodec), `Protocol`
 - `host/scripts/`: `install-deps.sh`, `run.sh`, `daemon.sh` + `lib.sh` (plug-in handling), `install-autostart.sh` (systemd user service)
 - `android/scripts/install-sdk.sh`: JDK, Android SDK, Gradle wrapper
@@ -48,6 +48,7 @@ To test a pipeline change without disturbing the user's desktop, feed `videotest
 - **Latency:** keep H.264 **constrained-baseline**, no B-frames and a small CPB. With High profile the Qualcomm decoder (`c2.qti.avc.decoder`) buffers frames, which caused visible lag. The `vendor.qti-ext-dec-*` keys in `Decoder.kt` matter for the same reason.
 - **Damage-driven frames:** Mutter only sends frames when the screen changes (plus `keepalive-time`), so low fps on a static screen is normal.
 - **`h264parse`** is optional in `pipeline.py`. Keep it that way.
+- **Linked sessions:** when a ScreenCast session is created with `remote-desktop-session-id`, Mutter expects `Start`/`Stop` and the `Closed` signal on the RemoteDesktop session, not the ScreenCast one (see `VirtualMonitor._control`). `NotifyTouch*` calls are fire-and-forget async calls. D-Bus keeps them in order, and only the first failure per session is logged as a warning.
 - **App lifecycle:** Android can destroy the surface after `onStop`, so `MainActivity.onStop` detaches explicitly. `attach`/`detach` must stay idempotent: a duplicate attach would create a new decoder after the resume keyframe has already been sent, and it would stay black until the next keyframe. When the app becomes visible again, the host forces a keyframe.
 - **Host tests:** `tests/test_imports.py` imports every module. Keep it, so syntax errors in modules without their own tests (like `server.py`) fail `unittest`.
 - **Desktop changes:** creating a virtual monitor or calling `display.py` changes the user's real display layout. Ask before doing it on their machine. Restarting the service or container (any `docker compose up` that recreates it, including `--build`), or reinstalling the APK, briefly cuts the tablet display.
