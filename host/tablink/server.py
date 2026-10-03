@@ -26,18 +26,33 @@ from gi.repository import Gio, GLib
 
 from . import protocol
 from .display import place_virtual_monitor
-from .mutter import VirtualMonitor
+from .mutter import MutterError, VirtualMonitor
 from .pipeline import EncoderPipeline
 
 log = logging.getLogger(__name__)
 
 HELLO_TIMEOUT = 1.0  # the app sends HELLO right after connecting
 PING_INTERVAL = 2.0
+LOCK_POLL = 0.5  # how often to check whether a locked desktop has been unlocked
 FRAME_QUEUE = 6  # ~100ms at 60fps; beyond that we drop until the next keyframe
 
 
 def even(n):
     return max(2, n - (n % 2))
+
+
+def screen_locked():
+    """Is the GNOME desktop locked? GNOME closes and refuses screen-cast
+    sessions while it is."""
+    try:
+        bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+        (locked,) = bus.call_sync("org.gnome.ScreenSaver", "/org/gnome/ScreenSaver",
+                                  "org.gnome.ScreenSaver", "GetActive", None,
+                                  GLib.VariantType.new("(b)"), Gio.DBusCallFlags.NONE,
+                                  1000, None).unpack()
+        return locked
+    except GLib.Error:
+        return False
 
 
 class Session:
@@ -56,6 +71,7 @@ class Session:
         self.monitor = None
         self.pipeline = None
         self.send_lock = threading.Lock()
+        self.next_ping = 0.0
 
     # -- lifecycle -------------------------------------------------------
 
@@ -72,24 +88,24 @@ class Session:
                      hello["version"], width, height)
 
             self.size = (width, height)
-            self.monitor = VirtualMonitor(touch=self.opts.touch)
             self.monitor_started = True
-            node_id = self.monitor.start()
-            self._send(protocol.pack_config(width, height))
-
-            self.pipeline = EncoderPipeline(
-                node_id, width, height, self.opts.fps, self.opts.bitrate,
-                self.opts.encoder, self._on_frame, self._on_pipeline_error,
-            )
-            self.pipeline.start()
-            if self.opts.position or self.opts.monitor_scale:
-                # The monitor only exists once the stream has negotiated, so
-                # this polls for it; keep it off the frame-writing thread.
-                threading.Thread(target=place_virtual_monitor, args=(self.opts.position, self.opts.monitor_scale),
-                                 name="position", daemon=True).start()
-
             threading.Thread(target=self._reader, name="reader", daemon=True).start()
-            self._writer()
+
+            # GNOME closes screen-cast sessions while the desktop is locked (and
+            # refuses new ones). Keep the connection, tell the app, and start a
+            # new stream once it's unlocked.
+            while not self.stopped.is_set():
+                self._wait_while_locked()
+                if self.stopped.is_set() or not self._start_stream():
+                    continue
+                self._writer()
+                if self.stopped.is_set() or not self.monitor.closed:
+                    break
+                if self.monitor.closed_by_desktop and not self._locking():
+                    log.info("client %s: stopped from the desktop; the tablet waits until asked to reconnect", self.addr)
+                    self._send(protocol.frame(protocol.STOPPED))
+                    break
+                self._stop_stream()  # locked (or about to be): wait and restart
         except protocol.AuthError as e:
             Session.rejections += 1
             log.log(logging.WARNING if Session.rejections == 1 else logging.DEBUG,
@@ -110,14 +126,77 @@ class Session:
         except OSError:
             pass
 
+    def _start_stream(self):
+        """Create the virtual monitor and encoder. Returns False if GNOME refused
+        because the desktop is locked (the caller waits and retries)."""
+        width, height = self.size
+        self.monitor = VirtualMonitor(touch=self.opts.touch)
+        try:
+            node_id = self.monitor.start()
+        except MutterError as e:
+            self.monitor = None
+            if "inhibited" not in str(e):
+                raise
+            log.debug("client %s: desktop locked, can't start the stream yet", self.addr)
+            self._idle(1.0)
+            return False
+        self.waiting_for_keyframe = True
+        self._send(protocol.pack_config(width, height))
+        self.pipeline = EncoderPipeline(
+            node_id, width, height, self.opts.fps, self.opts.bitrate,
+            self.opts.encoder, self._on_frame, self._on_pipeline_error,
+        )
+        self.pipeline.start()
+        if self.opts.position or self.opts.monitor_scale:
+            # The monitor only exists once the stream has negotiated, so
+            # this polls for it; keep it off the frame-writing thread.
+            threading.Thread(target=place_virtual_monitor, args=(self.opts.position, self.opts.monitor_scale),
+                             name="position", daemon=True).start()
+        return True
+
+    def _stop_stream(self):
+        """Tear down the monitor and encoder but keep the connection."""
+        pipeline, self.pipeline = self.pipeline, None
+        if pipeline:
+            pipeline.stop()
+        monitor, self.monitor = self.monitor, None
+        if monitor:
+            monitor.stop()
+        self._drain()
+
+    def _wait_while_locked(self):
+        """While the desktop is locked: tell the app once, then keep the
+        connection alive with pings until it's unlocked."""
+        if not screen_locked():
+            return
+        log.info("client %s: desktop locked; waiting for unlock", self.addr)
+        self._send(protocol.frame(protocol.LOCKED))
+        while not self.stopped.is_set() and screen_locked():
+            self._idle(LOCK_POLL)
+        if not self.stopped.is_set():
+            log.info("client %s: desktop unlocked; resuming", self.addr)
+
+    def _locking(self, grace=1.0):
+        """GNOME closes the session as the lock starts, possibly a moment before
+        the screensaver reports it. Watch for a lock briefly before treating the
+        close as GNOME's stop button."""
+        deadline = time.monotonic() + grace
+        while not screen_locked():
+            if time.monotonic() >= deadline or self.stopped.is_set():
+                return False
+            self.stopped.wait(0.1)
+        return True
+
+    def _idle(self, seconds):
+        """Wait without streaming, still sending keep-alive pings."""
+        if time.monotonic() >= self.next_ping:
+            self._send(protocol.pack_ping(time.monotonic_ns() // 1000))
+            self.next_ping = time.monotonic() + PING_INTERVAL
+        self.stopped.wait(seconds)
+
     def close(self):
         self.stopped.set()
-        if self.pipeline:
-            self.pipeline.stop()
-            self.pipeline = None
-        if self.monitor:
-            self.monitor.stop()
-            self.monitor = None
+        self._stop_stream()
         try:
             self.conn.shutdown(socket.SHUT_RDWR)
         except OSError:
@@ -231,36 +310,17 @@ class Session:
         log.error("pipeline: %s", message)
         self.stopped.set()
 
-    def _stopped_by_user(self):
-        """Did the desktop user end the session (GNOME's stop button), rather than
-        it closing for another reason? Closing while the screen is locked
-        doesn't count."""
-        if not self.monitor.closed_by_desktop:
-            return False
-        try:
-            bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
-            (locked,) = bus.call_sync("org.gnome.ScreenSaver", "/org/gnome/ScreenSaver",
-                                      "org.gnome.ScreenSaver", "GetActive", None,
-                                      GLib.VariantType.new("(b)"), Gio.DBusCallFlags.NONE,
-                                      1000, None).unpack()
-        except GLib.Error:
-            locked = False
-        return not locked
-
     def _writer(self):
-        next_ping = time.monotonic() + PING_INTERVAL
+        """Stream until the session is stopped or GNOME closes the monitor."""
         while not self.stopped.is_set() and not self.monitor.closed:
             try:
                 msg = self.frames.get(timeout=0.25)
                 self._send(msg)
             except queue.Empty:
                 pass
-            if time.monotonic() >= next_ping:
+            if time.monotonic() >= self.next_ping:
                 self._send(protocol.pack_ping(time.monotonic_ns() // 1000))
-                next_ping = time.monotonic() + PING_INTERVAL
-        if self.monitor.closed and self._stopped_by_user():
-            log.info("client %s: stopped from the desktop; the tablet waits until asked to reconnect", self.addr)
-            self._send(protocol.frame(protocol.STOPPED))
+                self.next_ping = time.monotonic() + PING_INTERVAL
 
 
 class Server:

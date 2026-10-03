@@ -36,6 +36,9 @@ class Connection(
     @Volatile private var output: DataOutputStream? = null
     @Volatile var connected = false
         private set
+    /** The desktop is locked: still connected, no video until the host sends CONFIG. */
+    @Volatile var desktopLocked = false
+        private set
     /** The desktop user ended the session; no reconnecting until [resume]. */
     @Volatile var stoppedByDesktop = false
         private set
@@ -205,6 +208,7 @@ class Connection(
                         val w = b.short.toInt() and 0xffff
                         val h = b.short.toInt() and 0xffff
                         Log.i(TAG, "host monitor ${w}x$h")
+                        desktopLocked = false
                         onStatus("Connected — starting video…")
                         synchronized(lock) {
                             videoWidth = w
@@ -217,6 +221,15 @@ class Connection(
                         val pts = b.long
                         val au = ByteArray(b.remaining()).also { b.get(it) }
                         synchronized(lock) { decoder?.feed(pts, au) }
+                    }
+                    Protocol.LOCKED -> {
+                        Log.i(TAG, "desktop locked")
+                        desktopLocked = true
+                        synchronized(lock) {
+                            videoWidth = 0  // the next CONFIG brings a new stream
+                            replaceDecoder(null)
+                        }
+                        onStatus("Desktop is locked\nUnlock it to continue")
                     }
                     Protocol.STOPPED -> {
                         Log.i(TAG, "stopped from the desktop")
@@ -231,6 +244,7 @@ class Connection(
             }
         } finally {
             connected = false
+            desktopLocked = false
             output = null
             synchronized(lock) {
                 videoWidth = 0

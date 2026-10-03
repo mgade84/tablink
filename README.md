@@ -24,7 +24,9 @@ Whenever no video is showing (waiting for the desktop, connecting, or stopped), 
 
 You can switch to other apps on the tablet without losing the monitor. The connection runs in a foreground service, shown as a "TabLink" notification. While the app is in the background the desktop keeps the virtual monitor and only pauses the video, and the picture comes back when you return. Tap **Disconnect** in the notification to end the session. If the desktop is gone and the app has been in the background for a minute, the service stops by itself.
 
-GNOME's screen-sharing indicator, the pill in the top bar, shows while TabLink is connected. Clicking its **stop** button ends the session for good. The monitor disappears, and the tablet shows "Stopped from the desktop. Tap to reconnect." instead of reconnecting by itself. To start again, tap the tablet screen, press **Reconnect** in the notification, or unplug and replug the tablet. Other disconnects, such as a cable glitch or a host restart, still reconnect automatically. So does a session GNOME closes while the screen is locked.
+GNOME's screen-sharing indicator, the pill in the top bar, shows while TabLink is connected. Clicking its **stop** button ends the session for good. The monitor disappears, and the tablet shows "Stopped from the desktop. Tap to reconnect." instead of reconnecting by itself. To start again, tap the tablet screen, press **Reconnect** in the notification, or unplug and replug the tablet. Other disconnects, such as a cable glitch or a host restart, still reconnect automatically.
+
+**Locking the desktop** doesn't disconnect the tablet. GNOME removes the virtual monitor while it's locked, so the tablet shows "Desktop is locked. Unlock it to continue." and the notification says "Desktop locked". When you unlock, the monitor and picture come back by themselves. One limitation: windows you had moved to the tablet end up on your main screen while the desktop is locked, and they don't move back by themselves. GNOME only lets its own extensions move other apps' windows.
 
 **Only TabLink can connect.** `adb reverse` makes the port reachable by every app on the tablet, so each host run uses a random token. The scripts pass it to the host and give it to TabLink when they launch it, and the app stores it privately. The host closes any connection without the right token, and only the first such rejection is logged as a warning. If you start TabLink yourself after the host restarted, and it stays on "Waiting for host…", unplug and replug the tablet so it gets the current token.
 
@@ -138,12 +140,12 @@ python3 -m unittest discover -s tests
 | Docker: `INSTALL_FAILED_UPDATE_INCOMPATIBLE` | The installed app was signed with a different key. Run `adb uninstall dev.mgade.tablink` once. |
 | Docker: `AccessDenied … AppArmor` in the logs | Keep `apparmor=unconfined` in `compose.yaml`. |
 | `address already in use` on port 27183 | Only run one of: the Docker container, the systemd service, or `run.sh`. |
-| `ScreenCast.CreateSession failed` | You need a GNOME Wayland session (`echo $XDG_SESSION_TYPE`). "Session creation inhibited" means the screen is locked; it works once you unlock. |
+| `ScreenCast.CreateSession failed` | You need a GNOME Wayland session (`echo $XDG_SESSION_TYPE`). |
 | Choppy or laggy | Lower `--bitrate` or `--scale`. Use a USB 3 cable/port. Run with `-v` for encoder latency and round-trip timings, and use `adb logcat -s Decoder:D` for decode timings. |
 | Static screen shows few frames | That's expected: Mutter only sends frames when something changes, plus a 1 s keepalive. |
 
 ## Protocol
-Big-endian `[type:u8][len:u32][payload]`. `HELLO` (app→host: w, h, dpi, version 2, then the session token), `CONFIG` (host→app: w, h), `STOPPED` (host→app: the desktop user pressed GNOME's stop button; the app waits until asked to reconnect), `VISIBILITY` (app→host: u8; 0 pauses video while the app is in the background, 1 resumes on a keyframe), `VIDEO` (u64 pts µs + Annex-B access unit), `TOUCH` (app→host: u8 action 0 down/1 move/2 up, u8 slot, f32 x, f32 y in monitor pixels), `PING`/`PONG`. See `host/tablink/protocol.py` and `android/.../Protocol.kt`.
+Big-endian `[type:u8][len:u32][payload]`. `HELLO` (app→host: w, h, dpi, version 2, then the session token), `CONFIG` (host→app: w, h), `LOCKED` (host→app: the desktop is locked; the connection stays and video resumes with the next `CONFIG`), `STOPPED` (host→app: the desktop user pressed GNOME's stop button; the app waits until asked to reconnect), `VISIBILITY` (app→host: u8; 0 pauses video while the app is in the background, 1 resumes on a keyframe), `VIDEO` (u64 pts µs + Annex-B access unit), `TOUCH` (app→host: u8 action 0 down/1 move/2 up, u8 slot, f32 x, f32 y in monitor pixels), `PING`/`PONG`. See `host/tablink/protocol.py` and `android/.../Protocol.kt`.
 
 ## License
 [MIT](LICENSE) © 2026 mgade84

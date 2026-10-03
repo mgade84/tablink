@@ -103,6 +103,7 @@ class TabLinkService : Service() {
         statusListener?.invoke(text)
         val summary = when {
             connection?.stoppedByDesktop == true -> STOPPED_SUMMARY
+            connection?.desktopLocked == true -> "Desktop locked"
             connection?.connected != true -> "Waiting for the desktop"
             attached -> "Showing the desktop"
             else -> "Connected (paused while in the background)"
