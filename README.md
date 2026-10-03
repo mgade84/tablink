@@ -1,15 +1,10 @@
 # TabLink
 
-<table>
-<tr>
-<td>
+<img src="docs/icon.svg" align="right" alt="TabLink icon: a monitor with Tux and a tablet with the Android robot, joined by a cable" width="128" height="128">
 
 Use an Android tablet as an **extended second monitor** for an Ubuntu (GNOME/Wayland) desktop over a USB cable. It is display-only; nothing is sent back from the tablet.
 
-</td>
-<td width="128"><img src="docs/icon.svg" alt="TabLink icon: a monitor with Tux and a tablet with the Android robot, joined by a cable" width="128" height="128"></td>
-</tr>
-</table>
+## How it works
 
 ```
 GNOME virtual monitor ─▶ PipeWire ─▶ VAAPI H.264 ─▶ TCP 127.0.0.1:27183
