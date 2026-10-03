@@ -17,6 +17,8 @@ def parse_args(argv):
     p.add_argument("--fps", type=int, default=60)
     p.add_argument("--scale", type=float, default=1.0,
                    help="monitor size relative to the tablet's native resolution (e.g. 0.5)")
+    p.add_argument("--position", choices=["left", "right", "above", "below"],
+                   help="where to put the tablet relative to the main display (default: GNOME's choice, right)")
     p.add_argument("--selftest", nargs="?", const="1920x1200", metavar="WxH",
                    help="create a virtual monitor without a tablet and record 5s to selftest.h264")
     p.add_argument("-v", "--verbose", action="store_true")
@@ -24,6 +26,7 @@ def parse_args(argv):
 
 
 def selftest(opts):
+    from .display import place_virtual_monitor
     from .mutter import VirtualMonitor
     from .pipeline import EncoderPipeline
 
@@ -58,6 +61,8 @@ def selftest(opts):
             GLib.idle_add(loop.quit)
             return
         logging.info("virtual monitor %dx%d is up; check Settings → Displays. Recording 5s…", width, height)
+        if opts.position:
+            threading.Thread(target=place_virtual_monitor, args=(opts.position,), daemon=True).start()
         GLib.timeout_add_seconds(5, loop.quit)
 
     threading.Thread(target=run, daemon=True).start()

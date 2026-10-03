@@ -30,14 +30,15 @@ Plug in the tablet and accept the "Allow USB debugging?" prompt. `adb devices` s
 ```bash
 scripts/run.sh                      # installs the app if needed, tunnels the port, starts the host (--scale 0.5)
 scripts/run.sh --scale 1            # full tablet resolution (sharpest; set GNOME scale to 200%)
+scripts/run.sh --position left       # put the tablet left of the main display (also: right, above, below)
 scripts/run.sh --bitrate 20000 --fps 60 --encoder vaapi
 ```
-Then arrange the new display in Settings → Displays.
+Without `--position`, GNOME puts the tablet to the right of your main display. You can still drag it anywhere in Settings → Displays for the current session.
 
 ## Start automatically on plug-in
 ```bash
 scripts/install-autostart.sh                 # systemd user service, starts with your session
-TABLINK_ARGS="--scale 1" scripts/install-autostart.sh   # same, with custom host options
+TABLINK_ARGS="--position left" scripts/install-autostart.sh   # same, with custom host options
 scripts/install-autostart.sh --uninstall
 journalctl --user -u tablink -f              # logs
 ```

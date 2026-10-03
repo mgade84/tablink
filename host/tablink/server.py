@@ -17,6 +17,7 @@ import time
 from gi.repository import GLib
 
 from . import protocol
+from .display import place_virtual_monitor
 from .mutter import VirtualMonitor
 from .pipeline import EncoderPipeline
 
@@ -63,6 +64,11 @@ class Session:
                 self.opts.encoder, self._on_frame, self._on_pipeline_error,
             )
             self.pipeline.start()
+            if self.opts.position:
+                # The monitor only exists once the stream has negotiated, so
+                # this polls for it; keep it off the frame-writing thread.
+                threading.Thread(target=place_virtual_monitor, args=(self.opts.position,),
+                                 name="position", daemon=True).start()
 
             threading.Thread(target=self._reader, name="reader", daemon=True).start()
             self._writer()
