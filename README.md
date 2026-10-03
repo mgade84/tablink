@@ -20,6 +20,8 @@ The two folders are independent projects, each with its own scripts and `Dockerf
 
 The tablet works as a touch screen for its part of the desktop. Each finger is a separate touch point, and the S Pen counts as one too. Apps that support touch on Wayland (GNOME apps, Firefox, Chrome) get real touch events, and GNOME turns them into mouse clicks for the rest. While it's connected, GNOME may show a remote-control indicator in the top bar. If you don't want touch, run the host with `--no-touch`.
 
+Whenever no video is showing (waiting for the desktop, connecting, or stopped), the tablet shows a black status screen with the TabLink icon in the middle and the current status just below it.
+
 You can switch to other apps on the tablet without losing the monitor. The connection runs in a foreground service, shown as a "TabLink" notification. While the app is in the background the desktop keeps the virtual monitor and only pauses the video, and the picture comes back when you return. Tap **Disconnect** in the notification to end the session. If the desktop is gone and the app has been in the background for a minute, the service stops by itself.
 
 GNOME's screen-sharing indicator, the pill in the top bar, shows while TabLink is connected. Clicking its **stop** button ends the session for good. The monitor disappears, and the tablet shows "Stopped from the desktop. Tap to reconnect." instead of reconnecting by itself. To start again, tap the tablet screen, press **Reconnect** in the notification, or unplug and replug the tablet. Other disconnects, such as a cable glitch or a host restart, still reconnect automatically. So does a session GNOME closes while the screen is locked.
@@ -101,7 +103,7 @@ python3 -m unittest discover -s tests
 ```
 
 ## App icon
-`docs/icon.svg` is the only source for the icon. After editing it, run `scripts/gen-icon.py`. That regenerates the Android launcher layers (`ic_launcher_{background,foreground,monochrome}.xml`; the monochrome one is the foreground in a single colour, for themed icons) and `docs/icon-preview.png`.
+`docs/icon.svg` is the only source for the icon. After editing it, run `scripts/gen-icon.py`. That regenerates the Android launcher layers (`ic_launcher_{background,foreground,monochrome}.xml`; the monochrome one is the foreground in a single colour, for themed icons) and `docs/icon-preview.png`. The app uses the launcher icon on its status screens too, and the monochrome layer as the notification icon, so all of them update together.
 
 ## Troubleshooting
 | Symptom | Fix |
