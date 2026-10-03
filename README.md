@@ -26,6 +26,8 @@ You can switch to other apps on the tablet without losing the monitor. The conne
 
 GNOME's screen-sharing indicator, the pill in the top bar, shows while TabLink is connected. Clicking its **stop** button ends the session for good. The monitor disappears, and the tablet shows "Stopped from the desktop. Tap to reconnect." instead of reconnecting by itself. To start again, tap the tablet screen, press **Reconnect** in the notification, or unplug and replug the tablet. Other disconnects, such as a cable glitch or a host restart, still reconnect automatically. So does a session GNOME closes while the screen is locked.
 
+**Only TabLink can connect.** `adb reverse` makes the port reachable by every app on the tablet, so each host run uses a random token. The scripts pass it to the host and give it to TabLink when they launch it, and the app stores it privately. The host closes any connection without the right token, and only the first such rejection is logged as a warning. If you start TabLink yourself after the host restarted, and it stays on "Waiting for host…", unplug and replug the tablet so it gets the current token.
+
 ## Requirements
 - Ubuntu 24.04 / GNOME 46 on Wayland (GNOME 44+ should work)
 - AMD/Intel GPU with VAAPI. Without it, the host falls back to `x264enc`.
@@ -43,7 +45,7 @@ TabLink then runs in the background and restarts with Docker. Plug in the tablet
 
 | Task | Command |
 |---|---|
-| Follow the logs | `docker compose logs -f` |
+| Follow the logs | `docker compose logs -f`, which Docker caps at 3 × 10 MB. Add `-v` to `TABLINK_ARGS` for latency and round-trip timings. |
 | Update after `git pull` | `docker compose up -d --build` |
 | Restart (e.g. after editing `.env`) | `docker compose up -d` |
 | Stop / remove | `docker compose stop` / `docker compose down` |
@@ -115,11 +117,11 @@ python3 -m unittest discover -s tests
 | Docker: `AccessDenied … AppArmor` in the logs | Keep `apparmor=unconfined` in `compose.yaml`. |
 | `address already in use` on port 27183 | Only run one of: the Docker container, the systemd service, or `run.sh`. |
 | `ScreenCast.CreateSession failed` | You need a GNOME Wayland session (`echo $XDG_SESSION_TYPE`). "Session creation inhibited" means the screen is locked; it works once you unlock. |
-| Choppy or laggy | Lower `--bitrate` or `--scale`. Use a USB 3 cable/port. Run with `-v` to see RTT logs. |
+| Choppy or laggy | Lower `--bitrate` or `--scale`. Use a USB 3 cable/port. Run with `-v` for encoder latency and round-trip timings, and use `adb logcat -s Decoder:D` for decode timings. |
 | Static screen shows few frames | That's expected: Mutter only sends frames when something changes, plus a 1 s keepalive. |
 
 ## Protocol
-Big-endian `[type:u8][len:u32][payload]`. `HELLO` (app→host: w, h, dpi, version), `CONFIG` (host→app: w, h), `STOPPED` (host→app: the desktop user pressed GNOME's stop button; the app waits until asked to reconnect), `VISIBILITY` (app→host: u8; 0 pauses video while the app is in the background, 1 resumes on a keyframe), `VIDEO` (u64 pts µs + Annex-B access unit), `TOUCH` (app→host: u8 action 0 down/1 move/2 up, u8 slot, f32 x, f32 y in monitor pixels), `PING`/`PONG`. See `host/tablink/protocol.py` and `android/.../Protocol.kt`.
+Big-endian `[type:u8][len:u32][payload]`. `HELLO` (app→host: w, h, dpi, version 2, then the session token), `CONFIG` (host→app: w, h), `STOPPED` (host→app: the desktop user pressed GNOME's stop button; the app waits until asked to reconnect), `VISIBILITY` (app→host: u8; 0 pauses video while the app is in the background, 1 resumes on a keyframe), `VIDEO` (u64 pts µs + Annex-B access unit), `TOUCH` (app→host: u8 action 0 down/1 move/2 up, u8 slot, f32 x, f32 y in monitor pixels), `PING`/`PONG`. See `host/tablink/protocol.py` and `android/.../Protocol.kt`.
 
 ## License
 [MIT](LICENSE) © 2026 mgade84

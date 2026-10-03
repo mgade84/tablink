@@ -8,7 +8,7 @@ import java.io.DataOutputStream
  * Every message is framed as [type:u8][len:u32][payload], big-endian.
  */
 object Protocol {
-    const val VERSION = 1
+    const val VERSION = 2
     const val PORT = 27183
 
     const val HELLO = 0x01   // app -> host: u16 width, u16 height, u16 dpi, u8 version
@@ -28,13 +28,16 @@ object Protocol {
 
     class Message(val type: Int, val payload: ByteArray)
 
-    fun writeHello(out: DataOutputStream, width: Int, height: Int, dpi: Int) {
+    /** HELLO carries the session token the desktop launched us with (see TabLinkService). */
+    fun writeHello(out: DataOutputStream, width: Int, height: Int, dpi: Int, token: String) {
+        val tokenBytes = token.toByteArray(Charsets.US_ASCII)
         out.writeByte(HELLO)
-        out.writeInt(7)
+        out.writeInt(7 + tokenBytes.size)
         out.writeShort(width)
         out.writeShort(height)
         out.writeShort(dpi)
         out.writeByte(VERSION)
+        out.write(tokenBytes)
         out.flush()
     }
 

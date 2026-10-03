@@ -7,8 +7,11 @@ Threads:
             thread drains the frame queue into the socket.
 """
 
+import hmac
 import logging
+import os
 import queue
+import secrets
 import socket
 import struct
 import threading
@@ -33,6 +36,8 @@ def even(n):
 
 
 class Session:
+    rejections = 0  # across sessions: only the first bad token is logged as a warning
+
     def __init__(self, conn, addr, opts):
         self.conn = conn
         self.addr = addr
@@ -41,6 +46,7 @@ class Session:
         self.stopped = threading.Event()
         self.waiting_for_keyframe = True
         self.visible = True  # the app is in the foreground and showing video
+        self.monitor_started = False
         self.monitor = None
         self.pipeline = None
         self.send_lock = threading.Lock()
@@ -58,6 +64,7 @@ class Session:
 
             self.size = (width, height)
             self.monitor = VirtualMonitor(touch=self.opts.touch)
+            self.monitor_started = True
             node_id = self.monitor.start()
             self._send(protocol.pack_config(width, height))
 
@@ -74,6 +81,10 @@ class Session:
 
             threading.Thread(target=self._reader, name="reader", daemon=True).start()
             self._writer()
+        except protocol.AuthError as e:
+            Session.rejections += 1
+            log.log(logging.WARNING if Session.rejections == 1 else logging.DEBUG,
+                    "client %s rejected: %s", self.addr, e)
         except (OSError, protocol.ProtocolError, RuntimeError) as e:
             log.warning("client %s: %s", self.addr, e)
         except Exception:
@@ -94,7 +105,7 @@ class Session:
         except OSError:
             pass
         self.conn.close()
-        log.info("client %s disconnected", self.addr)
+        log.log(logging.INFO if self.monitor_started else logging.DEBUG, "client %s disconnected", self.addr)
 
     # -- inbound ---------------------------------------------------------
 
@@ -115,6 +126,10 @@ class Session:
         hello = protocol.unpack_hello(self._recv_exact(length))
         if hello["version"] != protocol.PROTO_VERSION:
             raise protocol.ProtocolError(f"protocol version {hello['version']} unsupported")
+        # adb reverse exposes the port to every app on the tablet; only TabLink,
+        # launched by host/scripts with the token, may connect.
+        if not hmac.compare_digest(hello["token"], self.opts.token):
+            raise protocol.AuthError("wrong or missing token (re-plug the tablet so the app gets the current one)")
         if not (64 <= hello["width"] <= 8192 and 64 <= hello["height"] <= 8192):
             raise protocol.ProtocolError(f"bad size {hello['width']}x{hello['height']}")
         self.conn.settimeout(None)
@@ -137,7 +152,7 @@ class Session:
                     elif msg_type == protocol.PONG and len(payload) == 8:
                         (sent,) = struct.unpack(">Q", payload)
                         rtt_ms = (time.monotonic_ns() // 1000 - sent) / 1000
-                        log.info("rtt %.1f ms", rtt_ms)
+                        log.debug("rtt %.1f ms", rtt_ms)
         except (OSError, protocol.ProtocolError) as e:
             log.debug("reader: %s", e)
         self.stopped.set()
@@ -234,13 +249,21 @@ class Server:
     def __init__(self, opts):
         self.opts = opts
         self.loop = GLib.MainLoop()
+        # Shared secret the app must present. host/scripts generate it and pass it to
+        # both the host (TABLINK_TOKEN) and the app (am start --es ...TOKEN).
+        opts.token = os.environ.get("TABLINK_TOKEN", "")
+        if not opts.token:
+            opts.token = secrets.token_hex(16)
+            log.warning("TABLINK_TOKEN not set; generated one. Start the app with: "
+                        "adb shell am start -n dev.mgade.tablink/.MainActivity "
+                        "--es dev.mgade.tablink.extra.TOKEN %s", opts.token)
 
     def _acceptor(self, sock):
         while True:
             conn, addr = sock.accept()
             conn.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
             conn.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 1 << 20)
-            log.info("connection from %s", addr)
+            log.debug("connection from %s", addr)
             # One tablet at a time: handle this client to completion.
             Session(conn, addr, self.opts).run()
 

@@ -68,13 +68,16 @@ class TabLinkService : Service() {
         super.onDestroy()
     }
 
+    private fun token(): String =
+        getSharedPreferences(PREFS, MODE_PRIVATE).getString(KEY_TOKEN, "") ?: ""
+
     /** The activity is showing [surface]; (re)connect if the screen size changed. */
     fun attach(surface: Surface, width: Int, height: Int, dpi: Int) {
         attached = true
         val c = connection
         if (c == null || c.width != width || c.height != height) {
             c?.stop()
-            connection = Connection(width, height, dpi, ::onStatus).also { it.start() }
+            connection = Connection(width, height, dpi, ::token, ::onStatus).also { it.start() }
         }
         connection!!.attach(surface)
     }
@@ -145,6 +148,11 @@ class TabLinkService : Service() {
         private const val STOPPED_SUMMARY = "Stopped from the desktop"
         /** Intent extra for MainActivity: reconnect even if the desktop stopped the session. */
         const val EXTRA_RECONNECT = "dev.mgade.tablink.extra.RECONNECT"
+        /** Intent extra for MainActivity: the host's session token (host/scripts/lib.sh). */
+        const val EXTRA_TOKEN = "dev.mgade.tablink.extra.TOKEN"
+        /** Private app storage for the token, so a relaunch from the launcher still connects. */
+        const val PREFS = "tablink"
+        const val KEY_TOKEN = "token"
         private const val IDLE_TIMEOUT_MS = 60_000L
     }
 }

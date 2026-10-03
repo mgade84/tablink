@@ -105,7 +105,7 @@ class Decoder(
         if (ms > statMaxMs) statMaxMs = ms
         val elapsed = (now - statSince) / 1e9
         if (elapsed >= 5.0) {
-            Log.i(TAG, "decode: avg %.1f ms, max %.1f ms (%.0f fps)".format(
+            Log.d(TAG, "decode: avg %.1f ms, max %.1f ms (%.0f fps)".format(
                 statSumMs / statCount, statMaxMs, statCount / elapsed))
             statCount = 0; statSumMs = 0.0; statMaxMs = 0.0; statSince = now
         }

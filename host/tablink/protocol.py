@@ -5,10 +5,11 @@ Every message is framed as ``[type:u8][len:u32][payload]``, big-endian.
 
 import struct
 
-PROTO_VERSION = 1
+PROTO_VERSION = 2
 DEFAULT_PORT = 27183
 
-HELLO = 0x01   # app -> host: u16 width, u16 height, u16 dpi, u8 protoVersion
+HELLO = 0x01   # app -> host: u16 width, u16 height, u16 dpi, u8 protoVersion, then the
+               # session token (ASCII, rest of the payload; see Server.token)
 CONFIG = 0x02  # host -> app: u16 width, u16 height
 STOPPED = 0x04  # host -> app, no payload: the desktop user ended the session (GNOME's
                 # screen-sharing stop button). The app stays disconnected until asked to reconnect.
@@ -34,19 +35,24 @@ class ProtocolError(Exception):
     pass
 
 
+class AuthError(ProtocolError):
+    """The client didn't present the session token."""
+
+
 def frame(msg_type, payload=b""):
     return HEADER.pack(msg_type, len(payload)) + payload
 
 
-def pack_hello(width, height, dpi, version=PROTO_VERSION):
-    return frame(HELLO, HELLO_BODY.pack(width, height, dpi, version))
+def pack_hello(width, height, dpi, token, version=PROTO_VERSION):
+    return frame(HELLO, HELLO_BODY.pack(width, height, dpi, version) + token.encode("ascii"))
 
 
 def unpack_hello(payload):
-    if len(payload) != HELLO_BODY.size:
+    if len(payload) < HELLO_BODY.size:
         raise ProtocolError(f"bad HELLO length {len(payload)}")
-    width, height, dpi, version = HELLO_BODY.unpack(payload)
-    return {"width": width, "height": height, "dpi": dpi, "version": version}
+    width, height, dpi, version = HELLO_BODY.unpack_from(payload)
+    token = payload[HELLO_BODY.size:].decode("ascii", "replace")
+    return {"width": width, "height": height, "dpi": dpi, "version": version, "token": token}
 
 
 def pack_config(width, height):

@@ -7,7 +7,7 @@ Guidance for AI coding agents (Claude Code, Codex, etc.) working on TabLink. For
 - **Single sources of truth:**
   - Wire protocol: `host/tablink/protocol.py` ⇄ `android/.../Protocol.kt`. These are the one deliberate mirror (two languages). Change both together and bump `PROTO_VERSION` / `VERSION` for incompatible changes.
   - App icon: `docs/icon.svg` → `scripts/gen-icon.py` → `res/drawable/ic_launcher_*.xml` and `docs/icon-preview.png`. Never hand-edit the generated files. The app reuses them: `@mipmap/ic_launcher` on the status screen, `@drawable/ic_launcher_monochrome` as the notification icon.
-  - Tablet connect steps: `host/scripts/lib.sh` (`connect_tablet`), used by both `run.sh` and `daemon.sh`.
+  - Tablet connect steps: `host/scripts/lib.sh` (`connect_tablet`), used by both `run.sh` and `daemon.sh`. It also creates the per-run session token (`TABLINK_TOKEN`).
 - Keep it dependency-light. The host uses only system Python + PyGObject (`gi`): no pip packages, and no `GstVideo` typelib, which isn't installed. The app has no AndroidX or other libraries.
 
 ## Layout
@@ -54,6 +54,8 @@ To test a pipeline change without disturbing the user's desktop, feed `videotest
 - **App lifecycle:** Android can destroy the surface after `onStop`, so `MainActivity.onStop` detaches explicitly. `attach`/`detach` must stay idempotent: a duplicate attach would create a new decoder after the resume keyframe has already been sent, and it would stay black until the next keyframe. When the app becomes visible again, the host forces a keyframe.
 - **Host tests:** `tests/test_imports.py` imports every module. Keep it, so syntax errors in modules without their own tests (like `server.py`) fail `unittest`.
 - **Desktop changes:** creating a virtual monitor or calling `display.py` changes the user's real display layout. Ask before doing it on their machine. Restarting the service or container (any `docker compose up` that recreates it, including `--build`), or reinstalling the APK, briefly cuts the tablet display.
+- **Session token:** `adb reverse` exposes 27183 to every app on the tablet, so the host only accepts a `HELLO` carrying `TABLINK_TOKEN` (compared with `hmac.compare_digest`; protocol v2). `lib.sh` creates and exports the token and passes it to the app as the `dev.mgade.tablink.extra.TOKEN` extra on `am start`. The app saves it in SharedPreferences (`TabLinkService.PREFS`) and reads it on every connect attempt. Running `python3 -m tablink` without the variable generates a token and logs the `am start` command to use. `tests/test_auth.py` covers this. Never log the token, and never weaken or skip the check.
+- **Logging:** per-frame and per-second numbers (rtt, capture→encoded, decode) are debug-level (`-v` / `Log.d`). Connections, sessions and errors are info or warning. Repeated per-attempt events (connection from…, token rejections after the first) are debug, so a retrying client can't flood the logs. Container logs are capped by `logging:` in `compose.yaml`.
 - **App updates:** `host/scripts/lib.sh` reinstalls the APK only when its sha256 changes (stamp files in `~/.local/state/tablink/`).
 
 ## Docker

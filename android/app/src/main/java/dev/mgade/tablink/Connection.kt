@@ -28,6 +28,7 @@ class Connection(
     val width: Int,
     val height: Int,
     private val dpi: Int,
+    private val token: () -> String,  // read on every connect: the desktop may have sent a new one
     private val onStatus: (String?) -> Unit,  // null: video is showing
 ) {
     @Volatile private var running = false
@@ -189,7 +190,7 @@ class Connection(
             val input = DataInputStream(BufferedInputStream(s.getInputStream(), 1 shl 16))
             val out = DataOutputStream(BufferedOutputStream(s.getOutputStream()))
             synchronized(out) {
-                Protocol.writeHello(out, width, height, dpi)
+                Protocol.writeHello(out, width, height, dpi, token())
                 val visible = synchronized(lock) { surface != null }
                 Protocol.write(out, Protocol.VISIBILITY, byteArrayOf(if (visible) 1 else 0))
             }

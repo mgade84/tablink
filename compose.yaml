@@ -20,6 +20,9 @@ services:
     image: tablink
     command: ${TABLINK_ARGS:-}
     restart: unless-stopped
+    logging:                   # Docker keeps logs forever by default; cap them at 3 × 10 MB
+      driver: json-file
+      options: { max-size: 10m, max-file: "3" }
     init: true                 # forwards stop signals and reaps adb's child processes
     network_mode: host         # loopback port 27183 for `adb reverse`, and the adb server on 5037
     user: "1000:1000"

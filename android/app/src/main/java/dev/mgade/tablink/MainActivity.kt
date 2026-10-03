@@ -41,7 +41,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
             service = s
             s.statusListener = ::showStatus  // replays the current status, so set `service` first
             attachIfReady()
-            consumeReconnectRequest()
+            consumeLaunchExtras()
         }
 
         override fun onServiceDisconnected(name: ComponentName) {
@@ -51,6 +51,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        consumeLaunchExtras()  // before onStart starts the service, which connects with the token
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             window.attributes.layoutInDisplayCutoutMode =
@@ -102,11 +103,19 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        consumeReconnectRequest()
+        consumeLaunchExtras()
     }
 
-    /** The desktop launches us with EXTRA_RECONNECT when the tablet is plugged in. */
-    private fun consumeReconnectRequest() {
+    /**
+     * The desktop launches us with EXTRA_TOKEN and EXTRA_RECONNECT when the tablet
+     * is plugged in. The token is saved before any connect attempt reads it.
+     */
+    private fun consumeLaunchExtras() {
+        intent.getStringExtra(TabLinkService.EXTRA_TOKEN)?.let { token ->
+            intent.removeExtra(TabLinkService.EXTRA_TOKEN)
+            getSharedPreferences(TabLinkService.PREFS, MODE_PRIVATE).edit()
+                .putString(TabLinkService.KEY_TOKEN, token).apply()
+        }
         if (intent.getBooleanExtra(TabLinkService.EXTRA_RECONNECT, false)) {
             intent.removeExtra(TabLinkService.EXTRA_RECONNECT)
             reconnectRequested = true

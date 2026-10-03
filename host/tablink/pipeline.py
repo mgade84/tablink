@@ -71,7 +71,7 @@ class LatencyStats:
         now = time.monotonic()
         if now - self.since >= self.period:
             n = len(self.samples)
-            log.info("%s: avg %.1f ms, max %.1f ms (%.0f fps)", self.label,
+            log.debug("%s: avg %.1f ms, max %.1f ms (%.0f fps)", self.label,
                      sum(self.samples) / n, max(self.samples), n / (now - self.since))
             self._reset(now)
 
