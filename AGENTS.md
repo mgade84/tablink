@@ -6,7 +6,7 @@ Guidance for AI coding agents (Claude Code, Codex, etc.) working on TabLink. For
 - **Reuse, don't duplicate.** Reference existing code and assets instead of copying them or adding variant files. If a variant really seems necessary, generate it from the single source or ask first.
 - **Single sources of truth:**
   - Wire protocol: `host/tablink/protocol.py` ⇄ `android/.../Protocol.kt`. These are the one deliberate mirror (two languages). Change both together and bump `PROTO_VERSION` / `VERSION` for incompatible changes.
-  - App icon: `docs/icon.svg` → `scripts/gen-icon.py` → `res/drawable/ic_launcher_*.xml` and `docs/icon-preview.png`. Never hand-edit the generated files.
+  - App icon: `docs/icon.svg` → `scripts/gen-icon.py` → `res/drawable/ic_launcher_*.xml` and `docs/icon-preview.png`. Never hand-edit the generated files. The app reuses them: `@mipmap/ic_launcher` on the status screen, `@drawable/ic_launcher_monochrome` as the notification icon.
   - Tablet connect steps: `host/scripts/lib.sh` (`connect_tablet`), used by both `run.sh` and `daemon.sh`.
 - Keep it dependency-light. The host uses only system Python + PyGObject (`gi`): no pip packages, and no `GstVideo` typelib, which isn't installed. The app has no AndroidX or other libraries.
 
@@ -19,7 +19,7 @@ Guidance for AI coding agents (Claude Code, Codex, etc.) working on TabLink. For
   - `protocol.py`, `__main__.py` (CLI, `--selftest`)
 - `android/app/src/main/java/dev/mgade/tablink/`
   - `TabLinkService`: foreground service (`connectedDevice`) that owns the connection, so the desktop monitor survives the app going to the background
-  - `MainActivity`: fullscreen SurfaceView that binds the service and attaches/detaches its surface
+  - `MainActivity`: fullscreen SurfaceView that binds the service and attaches/detaches its surface. On top is `statusScreen`, a black screen with the launcher icon and the status text centred below it. It's shown for every non-null status (waiting, connecting, stopped), and tapping it calls `reconnect()`.
   - `Connection`: socket, reconnect loop, VISIBILITY and TOUCH messages (scaled from view pixels to monitor pixels). The decoder only exists while a surface is attached.
   - `Decoder` (MediaCodec), `Protocol`
 - `host/scripts/`: `install-deps.sh`, `run.sh`, `daemon.sh` + `lib.sh` (plug-in handling), `install-autostart.sh` (systemd user service)
@@ -50,6 +50,7 @@ To test a pipeline change without disturbing the user's desktop, feed `videotest
 - **`h264parse`** is optional in `pipeline.py`. Keep it that way.
 - **Linked sessions:** when a ScreenCast session is created with `remote-desktop-session-id`, Mutter expects `Start`/`Stop` and the `Closed` signal on the RemoteDesktop session, not the ScreenCast one (see `VirtualMonitor._control`). `NotifyTouch*` calls are fire-and-forget async calls. D-Bus keeps them in order, and only the first failure per session is logged as a warning.
 - **Stop button:** `VirtualMonitor` only receives Mutter's `Closed` signal when GNOME ends the session itself (stop button, etc.), because `stop()` unsubscribes before closing. The server then sends `STOPPED`, unless the screen is locked (`org.gnome.ScreenSaver.GetActive`). The app holds its reconnect loop until `resume()`, which is triggered by a tap, the notification's Reconnect action, or `lib.sh` launching it with `--ez dev.mgade.tablink.extra.RECONNECT true` on plug-in. Mutter refuses `Stop` from any process other than the session owner, so this can't be tested by script. Ask the user to press the button.
+- **Status screen layout:** the status text needs its own `LayoutParams(WRAP_CONTENT, WRAP_CONTENT)`. The LinearLayout default (match parent) wraps it to the icon's width. Inside `View.apply { }` blocks, don't name things `overlay`, because that resolves to `View.getOverlay()`. Check layout changes with a screenshot of the waiting screen: `docker compose stop`, then `adb exec-out screencap -p`, then `docker compose start`. That screen contains nothing private.
 - **App lifecycle:** Android can destroy the surface after `onStop`, so `MainActivity.onStop` detaches explicitly. `attach`/`detach` must stay idempotent: a duplicate attach would create a new decoder after the resume keyframe has already been sent, and it would stay black until the next keyframe. When the app becomes visible again, the host forces a keyframe.
 - **Host tests:** `tests/test_imports.py` imports every module. Keep it, so syntax errors in modules without their own tests (like `server.py`) fail `unittest`.
 - **Desktop changes:** creating a virtual monitor or calling `display.py` changes the user's real display layout. Ask before doing it on their machine. Restarting the service or container (any `docker compose up` that recreates it, including `--build`), or reinstalling the APK, briefly cuts the tablet display.
