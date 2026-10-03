@@ -40,6 +40,7 @@ class Session:
         self.frames = queue.Queue(maxsize=FRAME_QUEUE)
         self.stopped = threading.Event()
         self.waiting_for_keyframe = True
+        self.visible = True  # the app is in the foreground and showing video
         self.monitor = None
         self.pipeline = None
         self.send_lock = threading.Lock()
@@ -126,7 +127,9 @@ class Session:
                 if not data:
                     break
                 for msg_type, payload in reader.feed(data):
-                    if msg_type == protocol.PING:
+                    if msg_type == protocol.VISIBILITY and len(payload) == 1:
+                        self._set_visible(bool(payload[0]))
+                    elif msg_type == protocol.PING:
                         self._send(protocol.frame(protocol.PONG, payload))
                     elif msg_type == protocol.PONG and len(payload) == 8:
                         (sent,) = struct.unpack(">Q", payload)
@@ -136,6 +139,21 @@ class Session:
             log.debug("reader: %s", e)
         self.stopped.set()
 
+    def _set_visible(self, visible):
+        """The app went to the background (no surface) or came back. Keep the
+        virtual monitor either way; only pause the video."""
+        if visible == self.visible:
+            return
+        log.info("client %s: app %s", self.addr, "visible, resuming video" if visible else "in background, pausing video")
+        self.visible = visible
+        if visible:
+            # Its decoder starts from scratch, so restart on a fresh keyframe.
+            self.waiting_for_keyframe = True
+            if self.pipeline:
+                self.pipeline.request_keyframe()
+        else:
+            self._drain()
+
     # -- outbound --------------------------------------------------------
 
     def _send(self, data):
@@ -143,7 +161,7 @@ class Session:
             self.conn.sendall(data)
 
     def _on_frame(self, pts_us, data, keyframe):
-        if self.stopped.is_set():
+        if self.stopped.is_set() or not self.visible:
             return
         if self.waiting_for_keyframe:
             if not keyframe:

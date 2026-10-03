@@ -17,6 +17,8 @@ Tablet app ◀── MediaCodec (low latency) ◀──────────�
 
 The two folders are independent projects, each with its own scripts and `Dockerfile`. The virtual monitor works like a real one. You can arrange it in **Settings → Displays**, and it goes away when the tablet disconnects.
 
+You can switch to other apps on the tablet without losing the monitor. The connection runs in a foreground service, shown as a "TabLink" notification. While the app is in the background the desktop keeps the virtual monitor and only pauses the video, and the picture comes back when you return. Tap **Disconnect** in the notification to end the session. If the desktop is gone and the app has been in the background for a minute, the service stops by itself.
+
 ## Requirements
 - Ubuntu 24.04 / GNOME 46 on Wayland (GNOME 44+ should work)
 - AMD/Intel GPU with VAAPI. Without it, the host falls back to `x264enc`.
@@ -109,7 +111,7 @@ python3 -m unittest discover -s tests
 | Static screen shows few frames | That's expected: Mutter only sends frames when something changes, plus a 1 s keepalive. |
 
 ## Protocol
-Big-endian `[type:u8][len:u32][payload]`. `HELLO` (app→host: w, h, dpi, version), `CONFIG` (host→app: w, h), `VIDEO` (u64 pts µs + Annex-B access unit), `PING`/`PONG`. See `host/tablink/protocol.py` and `android/.../Protocol.kt`.
+Big-endian `[type:u8][len:u32][payload]`. `HELLO` (app→host: w, h, dpi, version), `CONFIG` (host→app: w, h), `VISIBILITY` (app→host: u8; 0 pauses video while the app is in the background, 1 resumes on a keyframe), `VIDEO` (u64 pts µs + Annex-B access unit), `PING`/`PONG`. See `host/tablink/protocol.py` and `android/.../Protocol.kt`.
 
 ## License
 [MIT](LICENSE) © 2026 mgade84

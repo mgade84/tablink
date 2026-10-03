@@ -10,6 +10,9 @@ DEFAULT_PORT = 27183
 
 HELLO = 0x01   # app -> host: u16 width, u16 height, u16 dpi, u8 protoVersion
 CONFIG = 0x02  # host -> app: u16 width, u16 height
+VISIBILITY = 0x03  # app -> host: u8 visible. While 0 the host sends no video
+                   # but keeps the virtual monitor; on 1 it restarts on a keyframe.
+                   # Apps that never send it are treated as always visible.
 VIDEO = 0x10   # host -> app: u64 ptsUs + Annex-B H.264 access unit
 PING = 0x30    # either way: u64 timestamp (opaque to the receiver)
 PONG = 0x31    # echo of PING payload
@@ -47,6 +50,10 @@ def pack_config(width, height):
 
 def pack_video(pts_us, access_unit):
     return frame(VIDEO, PTS.pack(pts_us) + access_unit)
+
+
+def pack_visibility(visible):
+    return frame(VISIBILITY, bytes([1 if visible else 0]))
 
 
 def pack_ping(stamp):

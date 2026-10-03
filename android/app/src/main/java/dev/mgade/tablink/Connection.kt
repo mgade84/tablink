@@ -10,22 +10,39 @@ import java.io.IOException
 import java.net.InetSocketAddress
 import java.net.Socket
 import java.nio.ByteBuffer
+import java.util.concurrent.Executors
 
 /**
  * Connects to the host through `adb reverse` (127.0.0.1 on the tablet is the
  * desktop), announces the screen size and decodes the video it gets back.
  * Reconnects forever until stop() is called.
+ *
+ * The connection outlives the screen: attach()/detach() a Surface as the app
+ * comes and goes. While detached the host keeps the virtual monitor but sends
+ * no video (VISIBILITY 0).
  */
 class Connection(
-    private val surface: Surface,
-    private val width: Int,
-    private val height: Int,
+    val width: Int,
+    val height: Int,
     private val dpi: Int,
-    private val onStatus: (String?) -> Unit,  // null hides the overlay
+    private val onStatus: (String?) -> Unit,  // null: video is showing
 ) {
     @Volatile private var running = false
     @Volatile private var socket: Socket? = null
+    @Volatile private var output: DataOutputStream? = null
+    @Volatile var connected = false
+        private set
     private var thread: Thread? = null
+    // Network writes from attach()/detach() (main thread) go through here.
+    private val sender = Executors.newSingleThreadExecutor()
+
+    // Guarded by lock: shared between the main thread (attach/detach) and the
+    // connection thread (CONFIG/VIDEO).
+    private val lock = Any()
+    private var surface: Surface? = null
+    private var decoder: Decoder? = null
+    private var videoWidth = 0
+    private var videoHeight = 0
 
     fun start() {
         running = true
@@ -37,6 +54,55 @@ class Connection(
         try { socket?.close() } catch (_: IOException) {}
         thread?.join(1000)
         thread = null
+        sender.shutdownNow()
+        synchronized(lock) { replaceDecoder(null) }
+    }
+
+    /** The app is showing: render into [s]. Repeat calls with the same surface are ignored. */
+    fun attach(s: Surface) {
+        val changed = synchronized(lock) {
+            if (surface === s) return@synchronized false
+            surface = s
+            replaceDecoder(s)
+            true
+        }
+        if (changed) sendVisibility(true)
+    }
+
+    /** The app went to the background and its surface is going away. Idempotent. */
+    fun detach() {
+        val changed = synchronized(lock) {
+            if (surface == null) return@synchronized false
+            surface = null
+            replaceDecoder(null)
+            true
+        }
+        if (changed) sendVisibility(false)
+    }
+
+    /** Must hold [lock]. A fresh decoder waits for the next keyframe's SPS/PPS. */
+    private fun replaceDecoder(s: Surface?) {
+        decoder?.release()
+        decoder = if (s != null && videoWidth > 0) {
+            Decoder(s, videoWidth, videoHeight) { onStatus(null) }
+        } else {
+            null
+        }
+    }
+
+    private fun sendVisibility(visible: Boolean) {
+        val out = output ?: return  // sent with the HELLO on the next connect
+        try {
+            sender.execute {
+                try {
+                    synchronized(out) { Protocol.write(out, Protocol.VISIBILITY, byteArrayOf(if (visible) 1 else 0)) }
+                } catch (e: IOException) {
+                    Log.d(TAG, "visibility: ${e.message}")
+                }
+            }
+        } catch (_: java.util.concurrent.RejectedExecutionException) {
+            // stopped
+        }
     }
 
     private fun loop() {
@@ -58,14 +124,19 @@ class Connection(
     private fun session() {
         val s = Socket()
         socket = s
-        var decoder: Decoder? = null
         try {
             s.tcpNoDelay = true
             s.receiveBufferSize = 1 shl 20
             s.connect(InetSocketAddress("127.0.0.1", Protocol.PORT), 1000)
             val input = DataInputStream(BufferedInputStream(s.getInputStream(), 1 shl 16))
-            val output = DataOutputStream(BufferedOutputStream(s.getOutputStream()))
-            Protocol.writeHello(output, width, height, dpi)
+            val out = DataOutputStream(BufferedOutputStream(s.getOutputStream()))
+            synchronized(out) {
+                Protocol.writeHello(out, width, height, dpi)
+                val visible = synchronized(lock) { surface != null }
+                Protocol.write(out, Protocol.VISIBILITY, byteArrayOf(if (visible) 1 else 0))
+            }
+            output = out
+            connected = true
 
             while (running) {
                 val msg = Protocol.read(input)
@@ -76,23 +147,31 @@ class Connection(
                         val h = b.short.toInt() and 0xffff
                         Log.i(TAG, "host monitor ${w}x$h")
                         onStatus("Connected — starting video…")
-                        decoder?.release()
-                        decoder = Decoder(surface, w, h) { onStatus(null) }
+                        synchronized(lock) {
+                            videoWidth = w
+                            videoHeight = h
+                            replaceDecoder(surface)
+                        }
                     }
                     Protocol.VIDEO -> {
                         val b = ByteBuffer.wrap(msg.payload)
                         val pts = b.long
                         val au = ByteArray(b.remaining()).also { b.get(it) }
-                        decoder?.feed(pts, au)
+                        synchronized(lock) { decoder?.feed(pts, au) }
                     }
-                    Protocol.PING -> synchronized(output) {
-                        Protocol.write(output, Protocol.PONG, msg.payload)
+                    Protocol.PING -> synchronized(out) {
+                        Protocol.write(out, Protocol.PONG, msg.payload)
                     }
                     else -> Log.w(TAG, "unknown message 0x${msg.type.toString(16)}")
                 }
             }
         } finally {
-            decoder?.release()
+            connected = false
+            output = null
+            synchronized(lock) {
+                videoWidth = 0
+                replaceDecoder(null)
+            }
             try { s.close() } catch (_: IOException) {}
             socket = null
         }

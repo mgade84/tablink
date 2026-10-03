@@ -13,6 +13,7 @@ object Protocol {
 
     const val HELLO = 0x01   // app -> host: u16 width, u16 height, u16 dpi, u8 version
     const val CONFIG = 0x02  // host -> app: u16 width, u16 height
+    const val VISIBILITY = 0x03  // app -> host: u8 visible (0 pauses video, monitor stays)
     const val VIDEO = 0x10   // host -> app: u64 ptsUs + Annex-B H.264 access unit
     const val PING = 0x30
     const val PONG = 0x31

@@ -34,6 +34,10 @@ class ProtocolTest(unittest.TestCase):
             msgs += reader.feed(stream[i:i + 1])
         self.assertEqual([t for t, _ in msgs], [protocol.PING, protocol.HELLO, protocol.PING])
 
+    def test_visibility(self):
+        msgs = protocol.Reader().feed(protocol.pack_visibility(False) + protocol.pack_visibility(True))
+        self.assertEqual(msgs, [(protocol.VISIBILITY, b"\x00"), (protocol.VISIBILITY, b"\x01")])
+
     def test_reader_rejects_oversized(self):
         with self.assertRaises(protocol.ProtocolError):
             protocol.Reader().feed(struct.pack(">BI", protocol.PING, 10_000_000))
