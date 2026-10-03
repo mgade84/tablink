@@ -1,6 +1,15 @@
 # TabLink
 
+<table>
+<tr>
+<td>
+
 Use an Android tablet as an **extended second monitor** for an Ubuntu (GNOME/Wayland) desktop over a USB cable. It is display-only; nothing is sent back from the tablet.
+
+</td>
+<td width="128"><img src="docs/icon.svg" alt="TabLink icon: a monitor with Tux and a tablet with the Android robot, joined by a cable" width="128" height="128"></td>
+</tr>
+</table>
 
 ```
 GNOME virtual monitor ─▶ PipeWire ─▶ VAAPI H.264 ─▶ TCP 127.0.0.1:27183
@@ -51,6 +60,9 @@ python3 -m tablink --selftest 1920x1200   # 5 s, writes selftest.h264
 gst-play-1.0 selftest.h264
 python3 -m unittest discover -s tests
 ```
+
+## App icon
+`docs/icon.svg` is the only source for the icon. After editing it, run `scripts/gen-icon.py`. That regenerates the Android launcher layers (`ic_launcher_{background,foreground,monochrome}.xml`; the monochrome one is the foreground in a single colour, for themed icons) and `docs/icon-preview.png`.
 
 ## Troubleshooting
 | Symptom | Fix |
