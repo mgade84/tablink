@@ -20,6 +20,8 @@ import android.view.WindowInsets
 import android.view.WindowInsetsController
 import android.view.WindowManager
 import android.widget.FrameLayout
+import android.widget.ImageView
+import android.widget.LinearLayout
 import android.widget.TextView
 
 /**
@@ -27,6 +29,7 @@ import android.widget.TextView
  * [TabLinkService], so switching apps only pauses the video.
  */
 class MainActivity : Activity(), SurfaceHolder.Callback {
+    private lateinit var statusScreen: View  // black status screen over the video
     private lateinit var status: TextView
     private var service: TabLinkService? = null
     private var holder: SurfaceHolder? = null  // set while the surface exists
@@ -34,9 +37,9 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
 
     private val serviceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName, binder: IBinder) {
-            service = (binder as TabLinkService.LocalBinder).service.also {
-                it.statusListener = ::showStatus
-            }
+            val s = (binder as TabLinkService.LocalBinder).service
+            service = s
+            s.statusListener = ::showStatus  // replays the current status, so set `service` first
             attachIfReady()
             consumeReconnectRequest()
         }
@@ -61,18 +64,32 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
             service?.touch(event, view.width, view.height)
             true
         }
+        val dp = resources.displayMetrics.density
         status = TextView(this).apply {
             setTextColor(Color.WHITE)
-            setBackgroundColor(Color.BLACK)
             textSize = 20f
             gravity = Gravity.CENTER
-            // After the desktop stops the session this reads "Tap to reconnect".
+        }
+        // App icon with the status text right below it, centred on a black screen.
+        statusScreen = FrameLayout(this).apply {
+            setBackgroundColor(Color.BLACK)
+            // After the desktop stops the session the text reads "Tap to reconnect".
             setOnClickListener { service?.reconnect() }
+            addView(LinearLayout(context).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER_HORIZONTAL
+                addView(ImageView(context).apply { setImageResource(R.mipmap.ic_launcher) },
+                    LinearLayout.LayoutParams((96 * dp).toInt(), (96 * dp).toInt()).apply {
+                        bottomMargin = (24 * dp).toInt()
+                    })
+                // Own width: the default (match parent) would wrap the text to the icon's width.
+                addView(status, LinearLayout.LayoutParams(-2, -2))
+            }, FrameLayout.LayoutParams(-2, -2, Gravity.CENTER))
         }
         setContentView(FrameLayout(this).apply {
             setBackgroundColor(Color.BLACK)
             addView(surfaceView, FrameLayout.LayoutParams(-1, -1))
-            addView(status, FrameLayout.LayoutParams(-1, -1))
+            addView(statusScreen, FrameLayout.LayoutParams(-1, -1))
         })
 
         // Without it the service's notification (and its Disconnect button) is hidden.
@@ -119,7 +136,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
 
     private fun showStatus(text: String?) {
         status.text = text ?: ""
-        status.visibility = if (text == null) View.GONE else View.VISIBLE
+        statusScreen.visibility = if (text == null) View.GONE else View.VISIBLE
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
