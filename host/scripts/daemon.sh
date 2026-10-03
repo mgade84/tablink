@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Long-running mode used by the systemd user service (scripts/install-autostart.sh):
+# Long-running mode used by the systemd user service (install-autostart.sh) and Docker:
 # keeps the host listening and connects the tablet every time it is plugged in.
 # Arguments go to the host, like run.sh.
 set -euo pipefail
 source "$(dirname "$0")/lib.sh"
 
-cd "$ROOT/host"
+cd "$HOST_DIR"
 python3 -m tablink --port "$PORT" --scale 0.5 "$@" &
 HOST_PID=$!
 trap 'kill $HOST_PID 2>/dev/null || true' EXIT

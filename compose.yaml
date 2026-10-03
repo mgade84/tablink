@@ -1,0 +1,52 @@
+# docker compose up -d --build
+# Assumes the desktop user is uid/gid 1000 (the first user on Ubuntu).
+# Host options (e.g. --position left) go in a .env file next to this one:
+#   TABLINK_ARGS=--position left
+services:
+  # Build-only: an image holding just the APK, consumed by the host image below.
+  app:
+    build:
+      context: android
+      secrets: [debug_keystore]
+    image: tablink-app
+    scale: 0                   # built, never started (a profile would hide its build secret)
+    network_mode: none
+
+  tablink:
+    build:
+      context: host
+      additional_contexts:
+        app: service:app       # COPY --from=app in host/Dockerfile
+    image: tablink
+    command: ${TABLINK_ARGS:-}
+    restart: unless-stopped
+    init: true                 # forwards stop signals and reaps adb's child processes
+    network_mode: host         # loopback port 27183 for `adb reverse`, and the adb server on 5037
+    user: "1000:1000"
+    security_opt:
+      - apparmor=unconfined    # Docker's default AppArmor profile blocks talking to the session D-Bus
+    group_add:
+      - "44"                   # video: /dev/dri/card*
+      - "992"                  # render: /dev/dri/renderD* (check: getent group render)
+      - "46"                   # plugdev: USB access to the tablet
+    devices:
+      - /dev/dri:/dev/dri      # VAAPI hardware encoding
+    device_cgroup_rules:
+      - "c 189:* rmw"          # USB devices, including ones plugged in after start
+    volumes:
+      - /dev/bus/usb:/dev/bus/usb
+      # The desktop session: D-Bus (Mutter APIs) and PipeWire (the screen video).
+      - type: bind
+        source: /run/user/1000/bus
+        target: /run/user/1000/bus
+        bind: { create_host_path: false }
+      - type: bind
+        source: /run/user/1000/pipewire-0
+        target: /run/user/1000/pipewire-0
+        bind: { create_host_path: false }
+      # Reuse the desktop's adb key so the tablet doesn't ask to authorize a new computer.
+      - ${HOME}/.android:/home/tablink/.android
+
+secrets:
+  debug_keystore:
+    file: ${HOME}/.android/debug.keystore   # signs the app; see android/Dockerfile

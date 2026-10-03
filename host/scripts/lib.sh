@@ -2,9 +2,11 @@
 # Set ANDROID_SERIAL to pick a tablet when more than one device is attached.
 
 PORT=27183
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-APK="$ROOT/android/app/build/outputs/apk/debug/app-debug.apk"
+HOST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"   # the host/ project
+# The app to install: a local Android build by default; the Docker image sets its own.
+APK="${TABLINK_APK:-$HOST_DIR/../android/app/build/outputs/apk/debug/app-debug.apk}"
 PKG="dev.mgade.tablink"
+STATE="${XDG_STATE_HOME:-$HOME/.local/state}/tablink"
 
 # Make sure the app on the attached tablet is current, tunnel the port over
 # USB and bring the app to the front.
@@ -12,7 +14,8 @@ connect_tablet() {
     # (Re)install when the app is missing or the built APK changed since the last install.
     if [ -f "$APK" ]; then
         local stamp sum
-        stamp="$ROOT/android/app/build/.installed-$(adb get-serialno)"
+        mkdir -p "$STATE"
+        stamp="$STATE/installed-$(adb get-serialno)"
         sum="$(sha256sum "$APK" | cut -d' ' -f1)"
         if ! adb shell pm path "$PKG" >/dev/null 2>&1 || [ "$(cat "$stamp" 2>/dev/null)" != "$sum" ]; then
             echo "Installing app…"
@@ -20,7 +23,7 @@ connect_tablet() {
             echo "$sum" > "$stamp"
         fi
     elif ! adb shell pm path "$PKG" >/dev/null 2>&1; then
-        echo "App not installed and $APK not built. Run: (cd android && ./gradlew assembleDebug)" >&2
+        echo "App not installed and $APK not built. Build it in android/ with: ./gradlew assembleDebug" >&2
         return 1
     fi
 

@@ -7,7 +7,7 @@ Guidance for AI coding agents (Claude Code, Codex, etc.) working on TabLink. For
 - **Single sources of truth:**
   - Wire protocol: `host/tablink/protocol.py` ⇄ `android/.../Protocol.kt`. These are the one deliberate mirror (two languages). Change both together and bump `PROTO_VERSION` / `VERSION` for incompatible changes.
   - App icon: `docs/icon.svg` → `scripts/gen-icon.py` → `res/drawable/ic_launcher_*.xml` and `docs/icon-preview.png`. Never hand-edit the generated files.
-  - Tablet connect steps: `scripts/lib.sh` (`connect_tablet`), used by both `run.sh` and `daemon.sh`.
+  - Tablet connect steps: `host/scripts/lib.sh` (`connect_tablet`), used by both `run.sh` and `daemon.sh`.
 - Keep it dependency-light. The host uses only system Python + PyGObject (`gi`): no pip packages, and no `GstVideo` typelib, which isn't installed. The app has no AndroidX or other libraries.
 
 ## Layout
@@ -18,7 +18,10 @@ Guidance for AI coding agents (Claude Code, Codex, etc.) working on TabLink. For
   - `display.py`: `org.gnome.Mutter.DisplayConfig` places the monitor (`--position`)
   - `protocol.py`, `__main__.py` (CLI, `--selftest`)
 - `android/app/src/main/java/dev/mgade/tablink/`: `MainActivity` (fullscreen SurfaceView), `Connection` (socket + reconnect loop), `Decoder` (MediaCodec), `Protocol`
-- `scripts/`: install, run, autostart (systemd user service + `daemon.sh`), `gen-icon.py`
+- `host/scripts/`: `install-deps.sh`, `run.sh`, `daemon.sh` + `lib.sh` (plug-in handling), `install-autostart.sh` (systemd user service)
+- `android/scripts/install-sdk.sh`: JDK, Android SDK, Gradle wrapper
+- `scripts/gen-icon.py`: the only root-level script, because it links `docs/` and `android/`
+- `android/` and `host/` are self-contained: each is its own Docker build context with its own `Dockerfile` and `.dockerignore`. Don't reach across them. The host finds the APK through `TABLINK_APK`, which defaults to the local Android build.
 
 ## Commands
 ```bash
@@ -33,12 +36,13 @@ To test a pipeline change without disturbing the user's desktop, feed `videotest
 
 ## Gotchas
 - **Screen lock:** Mutter refuses `CreateSession` with "Session creation inhibited" while the screen is locked. That's expected, and the app keeps retrying.
-- **Port 27183** is used by both the autostart service and `scripts/run.sh`. Stop the service (`systemctl --user stop tablink`) before running manually or on another port.
+- **Port 27183** is used by both the autostart service and `host/scripts/run.sh`. Stop the service (`systemctl --user stop tablink`) before running manually or on another port.
 - **Latency:** keep H.264 **constrained-baseline**, no B-frames and a small CPB. With High profile the Qualcomm decoder (`c2.qti.avc.decoder`) buffers frames, which caused visible lag. The `vendor.qti-ext-dec-*` keys in `Decoder.kt` matter for the same reason.
 - **Damage-driven frames:** Mutter only sends frames when the screen changes (plus `keepalive-time`), so low fps on a static screen is normal.
 - **`h264parse`** is optional in `pipeline.py`. Keep it that way.
 - **Desktop changes:** creating a virtual monitor or calling `display.py` changes the user's real display layout. Ask before doing it on their machine. Restarting the service or reinstalling the APK briefly cuts the tablet display.
-- **App updates:** `scripts/lib.sh` reinstalls the APK only when its sha256 changes (stamp file in `android/app/build/`).
+- **Docker** (`android/Dockerfile` builds an image holding only the APK, `host/Dockerfile` runs the host and copies the APK in through the `app` build context, `compose.yaml` wires them) reuses `host/scripts/install-deps.sh`, `android/scripts/install-sdk.sh`, `daemon.sh` and `lib.sh` unchanged. Keep it that way. Fix things in the scripts, not in Docker-only copies. It needs `apparmor=unconfined` (Docker's default profile blocks the session D-Bus) and must run as the desktop uid (D-Bus checks it). The APK is signed with the desktop's `~/.android/debug.keystore` through a build secret, because a different key makes `adb install -r` fail with `INSTALL_FAILED_UPDATE_INCOMPATIBLE`. The `amdgpu: os_same_file_description` warning in container logs is harmless.
+- **App updates:** `host/scripts/lib.sh` reinstalls the APK only when its sha256 changes (stamp files in `~/.local/state/tablink/`).
 
 ## Conventions
 - Match the existing style: small modules, short docstrings, comments that explain *why*.

@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # Install TabLink as a systemd user service that starts with your desktop
 # session and connects the tablet whenever it is plugged in.
-#   scripts/install-autostart.sh              install + start
-#   scripts/install-autostart.sh --uninstall  stop + remove
+#   host/scripts/install-autostart.sh              install + start
+#   host/scripts/install-autostart.sh --uninstall  stop + remove
 # Logs: journalctl --user -u tablink -f
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+SCRIPTS="$(cd "$(dirname "$0")" && pwd)"
 UNIT="$HOME/.config/systemd/user/tablink.service"
 
 if [ "${1:-}" = "--uninstall" ]; then
@@ -25,7 +25,7 @@ After=graphical-session.target
 PartOf=graphical-session.target
 
 [Service]
-ExecStart=$ROOT/scripts/daemon.sh ${TABLINK_ARGS:-}
+ExecStart=$SCRIPTS/daemon.sh ${TABLINK_ARGS:-}
 Restart=on-failure
 RestartSec=3
 

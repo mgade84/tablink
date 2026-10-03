@@ -42,7 +42,7 @@ class Connection(
     private fun loop() {
         var backoffMs = 500L
         while (running) {
-            onStatus("Waiting for host…\nRun scripts/run.sh on the desktop\n(${width}x$height)")
+            onStatus("Waiting for host…\nStart TabLink on the desktop\n(${width}x$height)")
             try {
                 session()
                 backoffMs = 500L
