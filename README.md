@@ -70,3 +70,10 @@ python3 -m unittest discover -s tests
 
 ## Protocol
 Big-endian `[type:u8][len:u32][payload]`. `HELLO` (app→host: w, h, dpi, version), `CONFIG` (host→app: w, h), `VIDEO` (u64 pts µs + Annex-B access unit), `PING`/`PONG`. See `host/tablink/protocol.py` and `android/.../Protocol.kt`.
+
+## License
+[MIT](LICENSE) © 2026 mgade84
+
+The app icon (`docs/icon.svg`) includes simplified drawings based on:
+- **Tux**, the Linux mascot, originally created by Larry Ewing (lewing@isc.tamu.edu) with The GIMP.
+- **The Android robot**, reproduced or modified from work created and shared by Google and used according to terms described in the [Creative Commons 3.0 Attribution License](https://creativecommons.org/licenses/by/3.0/).
