@@ -19,6 +19,9 @@ def parse_args(argv):
                    help="monitor size relative to the tablet's native resolution (e.g. 0.5)")
     p.add_argument("--position", choices=["left", "right", "above", "below"],
                    help="where to put the tablet relative to the main display (default: GNOME's choice, right)")
+    p.add_argument("--monitor-scale", type=float, metavar="FACTOR",
+                   help="GNOME scale for the tablet's monitor, e.g. 2 with --scale 1 for sharp text "
+                        "at full tablet resolution (default: GNOME's choice)")
     p.add_argument("--no-touch", dest="touch", action="store_false",
                    help="don't pass touch input from the tablet to the desktop")
     p.add_argument("--selftest", nargs="?", const="1920x1200", metavar="WxH",
@@ -63,8 +66,9 @@ def selftest(opts):
             GLib.idle_add(loop.quit)
             return
         logging.info("virtual monitor %dx%d is up; check Settings → Displays. Recording 5s…", width, height)
-        if opts.position:
-            threading.Thread(target=place_virtual_monitor, args=(opts.position,), daemon=True).start()
+        if opts.position or opts.monitor_scale:
+            threading.Thread(target=place_virtual_monitor, args=(opts.position, opts.monitor_scale),
+                             daemon=True).start()
         GLib.timeout_add_seconds(5, loop.quit)
 
     threading.Thread(target=run, daemon=True).start()

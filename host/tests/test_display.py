@@ -44,5 +44,36 @@ class LayoutTest(unittest.TestCase):
         self.assertEqual(pos(bs), {"DP-1": (740, 0), "Meta-0": (0, 0)})
 
 
+    def test_scale_keeps_tablet_on_its_side(self):
+        # Full-resolution tablet on the left at 100%; switch it to 200%.
+        full = dict(MONS)
+        full[TAB] = {"mode": "2960x1848@60", "size": (2960, 1848), "scales": [1.0, 2.0]}
+        bs = [Box((2960, 0, 1.0, 0, True, [DELL], {}), full, 1),
+              Box((0, 0, 1.0, 0, False, [TAB], {}), full, 1)]
+        self.assertTrue(_layout(bs, scale=2.0))
+        self.assertEqual(pos(bs), {"DP-1": (1480, 0), "Meta-0": (0, 0)})
+        self.assertEqual(bs[1].scale, 2.0)
+
+    def test_scale_and_position_together(self):
+        full = dict(MONS)
+        full[TAB] = {"mode": "2960x1848@60", "size": (2960, 1848), "scales": [1.0, 2.0]}
+        bs = [Box((0, 0, 1.0, 0, True, [DELL], {}), full, 1),
+              Box((1920, 0, 1.0, 0, False, [TAB], {}), full, 1)]
+        self.assertTrue(_layout(bs, "left", 2.0))
+        self.assertEqual(pos(bs), {"DP-1": (1480, 0), "Meta-0": (0, 0)})
+
+    def test_unsupported_scale_uses_nearest(self):
+        full = dict(MONS)
+        full[TAB] = {"mode": "2960x1848@60", "size": (2960, 1848), "scales": [1.0, 2.0, 3.0]}
+        bs = [Box((0, 0, 1.0, 0, True, [DELL], {}), full, 1),
+              Box((1920, 0, 1.0, 0, False, [TAB], {}), full, 1)]
+        with self.assertLogs("tablink.display", "WARNING"):
+            _layout(bs, scale=1.75)
+        self.assertEqual(bs[1].scale, 2.0)
+
+    def test_nothing_to_do(self):
+        self.assertFalse(_layout(boxes(), "right", 1.0))
+
+
 if __name__ == "__main__":
     unittest.main()

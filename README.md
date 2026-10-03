@@ -80,7 +80,7 @@ android/scripts/install-sdk.sh  # JDK 17, Android SDK, Gradle wrapper (~1.5 GB)
 Run it in a terminal:
 ```bash
 host/scripts/run.sh                  # installs the app if needed, tunnels the port, starts the host (--scale 0.5)
-host/scripts/run.sh --scale 1        # full tablet resolution (sharpest; set GNOME scale to 200%)
+host/scripts/run.sh --scale 1 --monitor-scale 2  # sharpest text, more latency (see "Sharpness vs latency")
 host/scripts/run.sh --position left  # put the tablet left of the main display (also: right, above, below)
 host/scripts/run.sh --bitrate 20000 --fps 60 --encoder vaapi
 host/scripts/run.sh --no-touch       # display only, no input from the tablet
@@ -95,6 +95,19 @@ host/scripts/install-autostart.sh --uninstall
 journalctl --user -u tablink -f                                   # logs
 ```
 The service keeps the host listening on loopback and runs `host/scripts/daemon.sh`. Each time the tablet is plugged in, it tunnels the port, wakes the tablet and opens TabLink. Stop it (`systemctl --user stop tablink`) before using `run.sh`. If several Android devices are attached, set `ANDROID_SERIAL`.
+
+## Sharpness vs latency
+By default the tablet gets a monitor at half its resolution (`--scale 0.5`) at GNOME's 100% scale, which the tablet stretches to fill its screen. That gives the lowest latency, but text is a little soft. For sharper text, stream more pixels and let GNOME scale the monitor up so things stay the same size. `--monitor-scale` sets that GNOME scale for the tablet's monitor.
+
+Measured on an AMD Ryzen 4000/5000 laptop iGPU with a 2960×1848 tablet (encode time per frame):
+
+| Options | Stream | Text | Encode | Max fps |
+|---|---|---|---|---|
+| *(default)* | 1480×924 | soft | ~8 ms | 60 |
+| `--scale 0.75 --monitor-scale 1.5` | 2220×1386 | sharper | ~18 ms | ~55 |
+| `--scale 1 --monitor-scale 2` | 2960×1848 | pixel-perfect | ~30 ms | ~33 |
+
+All three give the same text size. Faster GPUs encode quicker, so it's worth trying on yours. Put the options in `TABLINK_ARGS` (`.env` for Docker), and consider a higher `--bitrate` for the larger sizes. Fractional scales such as 1.5 need GNOME's fractional scaling. If a scale isn't supported, TabLink uses the closest supported one and logs a warning.
 
 ## Checking the host without a tablet
 ```bash
