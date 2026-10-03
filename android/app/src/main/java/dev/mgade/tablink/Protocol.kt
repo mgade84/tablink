@@ -13,6 +13,7 @@ object Protocol {
 
     const val HELLO = 0x01   // app -> host: u16 width, u16 height, u16 dpi, u8 version
     const val CONFIG = 0x02  // host -> app: u16 width, u16 height
+    const val STOPPED = 0x04  // host -> app: the desktop user ended the session; don't reconnect
     const val VISIBILITY = 0x03  // app -> host: u8 visible (0 pauses video, monitor stays)
     const val VIDEO = 0x10   // host -> app: u64 ptsUs + Annex-B H.264 access unit
     const val TOUCH = 0x20   // app -> host: u8 action, u8 slot, f32 x, f32 y (monitor pixels)

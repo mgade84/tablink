@@ -14,7 +14,7 @@ import struct
 import threading
 import time
 
-from gi.repository import GLib
+from gi.repository import Gio, GLib
 
 from . import protocol
 from .display import place_virtual_monitor
@@ -198,6 +198,22 @@ class Session:
         log.error("pipeline: %s", message)
         self.stopped.set()
 
+    def _stopped_by_user(self):
+        """Did the desktop user end the session (GNOME's stop button), rather than
+        it closing for another reason? Closing while the screen is locked
+        doesn't count."""
+        if not self.monitor.closed_by_desktop:
+            return False
+        try:
+            bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+            (locked,) = bus.call_sync("org.gnome.ScreenSaver", "/org/gnome/ScreenSaver",
+                                      "org.gnome.ScreenSaver", "GetActive", None,
+                                      GLib.VariantType.new("(b)"), Gio.DBusCallFlags.NONE,
+                                      1000, None).unpack()
+        except GLib.Error:
+            locked = False
+        return not locked
+
     def _writer(self):
         next_ping = time.monotonic() + PING_INTERVAL
         while not self.stopped.is_set() and not self.monitor.closed:
@@ -209,6 +225,9 @@ class Session:
             if time.monotonic() >= next_ping:
                 self._send(protocol.pack_ping(time.monotonic_ns() // 1000))
                 next_ping = time.monotonic() + PING_INTERVAL
+        if self.monitor.closed and self._stopped_by_user():
+            log.info("client %s: stopped from the desktop; the tablet waits until asked to reconnect", self.addr)
+            self._send(protocol.frame(protocol.STOPPED))
 
 
 class Server:

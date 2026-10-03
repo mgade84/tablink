@@ -50,6 +50,7 @@ class VirtualMonitor:
         self._closed = threading.Event()
         self.node_id = None
         self._touch_failed = False
+        self.closed_by_desktop = False
 
     def _call(self, bus, path, iface, method, args=None, reply_type=None):
         try:
@@ -122,6 +123,9 @@ class VirtualMonitor:
         self._node_ready.set()
 
     def _on_closed(self, *_args):
+        # Only reached when Mutter closes the session on its own: stop()
+        # unsubscribes before it closes the session itself.
+        self.closed_by_desktop = True
         log.info("mutter closed the session")
         self._closed.set()
 

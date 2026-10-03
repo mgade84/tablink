@@ -17,7 +17,8 @@ import java.util.concurrent.Executors
 /**
  * Connects to the host through `adb reverse` (127.0.0.1 on the tablet is the
  * desktop), announces the screen size and decodes the video it gets back.
- * Reconnects forever until stop() is called.
+ * Reconnects until stop() is called, except after the desktop user ends the
+ * session (STOPPED): then it waits for resume().
  *
  * The connection outlives the screen: attach()/detach() a Surface as the app
  * comes and goes. While detached the host keeps the virtual monitor but sends
@@ -34,6 +35,10 @@ class Connection(
     @Volatile private var output: DataOutputStream? = null
     @Volatile var connected = false
         private set
+    /** The desktop user ended the session; no reconnecting until [resume]. */
+    @Volatile var stoppedByDesktop = false
+        private set
+    private val resumeSignal = Object()
     private var thread: Thread? = null
     // Network writes from attach()/detach() (main thread) go through here.
     private val sender = Executors.newSingleThreadExecutor()
@@ -53,11 +58,20 @@ class Connection(
 
     fun stop() {
         running = false
+        synchronized(resumeSignal) { resumeSignal.notifyAll() }
         try { socket?.close() } catch (_: IOException) {}
         thread?.join(1000)
         thread = null
         sender.shutdownNow()
         synchronized(lock) { replaceDecoder(null) }
+    }
+
+    /** Reconnect after the desktop stopped the session (tap, notification, re-plug). */
+    fun resume() {
+        synchronized(resumeSignal) {
+            stoppedByDesktop = false
+            resumeSignal.notifyAll()
+        }
     }
 
     /** The app is showing: render into [s]. Repeat calls with the same surface are ignored. */
@@ -153,6 +167,13 @@ class Connection(
                 Log.d(TAG, "connection: ${e.message}")
             }
             if (!running) break
+            if (stoppedByDesktop) {
+                onStatus("Stopped from the desktop\nTap to reconnect")
+                synchronized(resumeSignal) {
+                    while (stoppedByDesktop && running) resumeSignal.wait()
+                }
+                continue
+            }
             try { Thread.sleep(backoffMs) } catch (_: InterruptedException) { break }
             backoffMs = (backoffMs * 2).coerceAtMost(2000L)
         }
@@ -195,6 +216,11 @@ class Connection(
                         val pts = b.long
                         val au = ByteArray(b.remaining()).also { b.get(it) }
                         synchronized(lock) { decoder?.feed(pts, au) }
+                    }
+                    Protocol.STOPPED -> {
+                        Log.i(TAG, "stopped from the desktop")
+                        stoppedByDesktop = true
+                        return
                     }
                     Protocol.PING -> synchronized(out) {
                         Protocol.write(out, Protocol.PONG, msg.payload)

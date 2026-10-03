@@ -22,6 +22,8 @@ The tablet works as a touch screen for its part of the desktop. Each finger is a
 
 You can switch to other apps on the tablet without losing the monitor. The connection runs in a foreground service, shown as a "TabLink" notification. While the app is in the background the desktop keeps the virtual monitor and only pauses the video, and the picture comes back when you return. Tap **Disconnect** in the notification to end the session. If the desktop is gone and the app has been in the background for a minute, the service stops by itself.
 
+GNOME's screen-sharing indicator, the pill in the top bar, shows while TabLink is connected. Clicking its **stop** button ends the session for good. The monitor disappears, and the tablet shows "Stopped from the desktop. Tap to reconnect." instead of reconnecting by itself. To start again, tap the tablet screen, press **Reconnect** in the notification, or unplug and replug the tablet. Other disconnects, such as a cable glitch or a host restart, still reconnect automatically. So does a session GNOME closes while the screen is locked.
+
 ## Requirements
 - Ubuntu 24.04 / GNOME 46 on Wayland (GNOME 44+ should work)
 - AMD/Intel GPU with VAAPI. Without it, the host falls back to `x264enc`.
@@ -115,7 +117,7 @@ python3 -m unittest discover -s tests
 | Static screen shows few frames | That's expected: Mutter only sends frames when something changes, plus a 1 s keepalive. |
 
 ## Protocol
-Big-endian `[type:u8][len:u32][payload]`. `HELLO` (app→host: w, h, dpi, version), `CONFIG` (host→app: w, h), `VISIBILITY` (app→host: u8; 0 pauses video while the app is in the background, 1 resumes on a keyframe), `VIDEO` (u64 pts µs + Annex-B access unit), `TOUCH` (app→host: u8 action 0 down/1 move/2 up, u8 slot, f32 x, f32 y in monitor pixels), `PING`/`PONG`. See `host/tablink/protocol.py` and `android/.../Protocol.kt`.
+Big-endian `[type:u8][len:u32][payload]`. `HELLO` (app→host: w, h, dpi, version), `CONFIG` (host→app: w, h), `STOPPED` (host→app: the desktop user pressed GNOME's stop button; the app waits until asked to reconnect), `VISIBILITY` (app→host: u8; 0 pauses video while the app is in the background, 1 resumes on a keyframe), `VIDEO` (u64 pts µs + Annex-B access unit), `TOUCH` (app→host: u8 action 0 down/1 move/2 up, u8 slot, f32 x, f32 y in monitor pixels), `PING`/`PONG`. See `host/tablink/protocol.py` and `android/.../Protocol.kt`.
 
 ## License
 [MIT](LICENSE) © 2026 mgade84

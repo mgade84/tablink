@@ -52,7 +52,10 @@ class TabLinkService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == ACTION_DISCONNECT) stopSelf()
+        when (intent?.action) {
+            ACTION_DISCONNECT -> stopSelf()
+            ACTION_RECONNECT -> reconnect()
+        }
         return START_NOT_STICKY
     }
 
@@ -76,6 +79,11 @@ class TabLinkService : Service() {
         connection!!.attach(surface)
     }
 
+    /** Reconnect after the desktop stopped the session. No-op otherwise. */
+    fun reconnect() {
+        connection?.resume()
+    }
+
     /** Forward a touch on the activity's view (main thread). */
     fun touch(event: android.view.MotionEvent, viewWidth: Int, viewHeight: Int) {
         connection?.sendTouch(event, viewWidth, viewHeight)
@@ -91,6 +99,7 @@ class TabLinkService : Service() {
         lastStatus = text
         statusListener?.invoke(text)
         val summary = when {
+            connection?.stoppedByDesktop == true -> STOPPED_SUMMARY
             connection?.connected != true -> "Waiting for the desktop"
             attached -> "Showing the desktop"
             else -> "Connected (paused while in the background)"
@@ -112,12 +121,18 @@ class TabLinkService : Service() {
             Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
         val disconnect = PendingIntent.getService(this, 0,
             Intent(this, TabLinkService::class.java).setAction(ACTION_DISCONNECT), PendingIntent.FLAG_IMMUTABLE)
-        return Notification.Builder(this, CHANNEL)
+        val builder = Notification.Builder(this, CHANNEL)
             .setSmallIcon(R.drawable.ic_launcher_monochrome)
             .setContentTitle(getString(R.string.app_name))
             .setContentText(text)
             .setContentIntent(open)
             .setOngoing(true)
+        if (text == STOPPED_SUMMARY) {
+            val reconnect = PendingIntent.getService(this, 1,
+                Intent(this, TabLinkService::class.java).setAction(ACTION_RECONNECT), PendingIntent.FLAG_IMMUTABLE)
+            builder.addAction(Notification.Action.Builder(null, "Reconnect", reconnect).build())
+        }
+        return builder
             .addAction(Notification.Action.Builder(null, "Disconnect", disconnect).build())
             .build()
     }
@@ -126,6 +141,10 @@ class TabLinkService : Service() {
         private const val CHANNEL = "tablink"
         private const val NOTIFICATION_ID = 1
         private const val ACTION_DISCONNECT = "dev.mgade.tablink.DISCONNECT"
+        private const val ACTION_RECONNECT = "dev.mgade.tablink.RECONNECT"
+        private const val STOPPED_SUMMARY = "Stopped from the desktop"
+        /** Intent extra for MainActivity: reconnect even if the desktop stopped the session. */
+        const val EXTRA_RECONNECT = "dev.mgade.tablink.extra.RECONNECT"
         private const val IDLE_TIMEOUT_MS = 60_000L
     }
 }

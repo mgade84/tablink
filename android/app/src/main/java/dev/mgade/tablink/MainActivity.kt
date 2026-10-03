@@ -30,6 +30,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
     private lateinit var status: TextView
     private var service: TabLinkService? = null
     private var holder: SurfaceHolder? = null  // set while the surface exists
+    private var reconnectRequested = false     // launched with EXTRA_RECONNECT (e.g. re-plugged)
 
     private val serviceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName, binder: IBinder) {
@@ -37,6 +38,7 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
                 it.statusListener = ::showStatus
             }
             attachIfReady()
+            consumeReconnectRequest()
         }
 
         override fun onServiceDisconnected(name: ComponentName) {
@@ -64,6 +66,8 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
             setBackgroundColor(Color.BLACK)
             textSize = 20f
             gravity = Gravity.CENTER
+            // After the desktop stops the session this reads "Tap to reconnect".
+            setOnClickListener { service?.reconnect() }
         }
         setContentView(FrameLayout(this).apply {
             setBackgroundColor(Color.BLACK)
@@ -75,6 +79,25 @@ class MainActivity : Activity(), SurfaceHolder.Callback {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 0)
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        consumeReconnectRequest()
+    }
+
+    /** The desktop launches us with EXTRA_RECONNECT when the tablet is plugged in. */
+    private fun consumeReconnectRequest() {
+        if (intent.getBooleanExtra(TabLinkService.EXTRA_RECONNECT, false)) {
+            intent.removeExtra(TabLinkService.EXTRA_RECONNECT)
+            reconnectRequested = true
+        }
+        val s = service ?: return
+        if (reconnectRequested) {
+            reconnectRequested = false
+            s.reconnect()
         }
     }
 

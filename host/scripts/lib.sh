@@ -29,5 +29,7 @@ connect_tablet() {
 
     adb reverse "tcp:$PORT" "tcp:$PORT"
     adb shell input keyevent KEYCODE_WAKEUP
-    adb shell am start -n "$PKG/.MainActivity" >/dev/null
+    # Plugging in is a clear "use the tablet", so also reconnect if the desktop
+    # user had stopped the previous session (TabLinkService.EXTRA_RECONNECT).
+    adb shell am start -n "$PKG/.MainActivity" --ez dev.mgade.tablink.extra.RECONNECT true >/dev/null
 }

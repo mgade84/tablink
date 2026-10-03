@@ -10,6 +10,8 @@ DEFAULT_PORT = 27183
 
 HELLO = 0x01   # app -> host: u16 width, u16 height, u16 dpi, u8 protoVersion
 CONFIG = 0x02  # host -> app: u16 width, u16 height
+STOPPED = 0x04  # host -> app, no payload: the desktop user ended the session (GNOME's
+                # screen-sharing stop button). The app stays disconnected until asked to reconnect.
 VISIBILITY = 0x03  # app -> host: u8 visible. While 0 the host sends no video
                    # but keeps the virtual monitor; on 1 it restarts on a keyframe.
                    # Apps that never send it are treated as always visible.
