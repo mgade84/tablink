@@ -5,7 +5,7 @@
 
 FROM ubuntu:24.04
 COPY scripts/install-deps.sh /opt/tablink/scripts/
-RUN /opt/tablink/scripts/install-deps.sh && rm -rf /var/lib/apt/lists/*
+RUN NO_RECOMMENDS=1 /opt/tablink/scripts/install-deps.sh && rm -rf /var/lib/apt/lists/*
 COPY . /opt/tablink
 COPY --from=app /app-debug.apk /opt/tablink/app-debug.apk
 # adb keys and lib.sh's install stamp live under $HOME.
@@ -13,9 +13,10 @@ RUN mkdir -p /home/tablink && chmod 1777 /home/tablink
 
 ENV HOME=/home/tablink \
     TABLINK_APK=/opt/tablink/app-debug.apk \
-    XDG_RUNTIME_DIR=/run/user/1000 \
-    DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus \
+    XDG_RUNTIME_DIR=/run/tablink \
+    DBUS_SESSION_BUS_ADDRESS=unix:path=/run/tablink/bus \
     PYTHONDONTWRITEBYTECODE=1
-# Must match the desktop user: D-Bus authenticates by uid.
+# Must match the desktop user (D-Bus authenticates by uid); compose.yaml sets it
+# from TABLINK_UID/TABLINK_GID.
 USER 1000:1000
 ENTRYPOINT ["/opt/tablink/scripts/daemon.sh"]

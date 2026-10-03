@@ -58,17 +58,26 @@ TabLink then runs in the background and restarts with Docker. Plug in the tablet
 
 | Access | Why |
 |---|---|
-| `/run/user/1000/bus` (session D-Bus) | Ask GNOME for the virtual monitor and place it |
-| `/run/user/1000/pipewire-0` | Receive the virtual monitor's video |
+| `/run/user/<uid>/bus` (session D-Bus) | Ask GNOME for the virtual monitor and place it |
+| `/run/user/<uid>/pipewire-0` | Receive the virtual monitor's video |
 | `/dev/dri` + `video`/`render` groups | Hardware H.264 encoding |
 | `/dev/bus/usb` + `plugdev` group | Talk to the tablet over adb |
 | `~/.android` | Reuse your adb key, so the tablet doesn't ask to authorise a new computer |
 | host network | `adb reverse` reaches the host on 127.0.0.1:27183 |
 | `apparmor=unconfined` | Docker's default AppArmor profile blocks the session D-Bus |
 
-It runs as uid/gid 1000, because D-Bus checks the uid. If your user, or the `render` group (`getent group render`), has a different id, change `compose.yaml`.
+It runs as your desktop user, because D-Bus checks the uid. The defaults (uid/gid 1000, groups `video` 44, `render` 992, `plugdev` 46) fit the first user on Ubuntu 24.04. The `render` group id in particular varies between machines. If yours differ, add them to `.env`:
+```bash
+cat >> .env <<EOF
+TABLINK_UID=$(id -u)
+TABLINK_GID=$(id -g)
+VIDEO_GID=$(getent group video | cut -d: -f3)
+RENDER_GID=$(getent group render | cut -d: -f3)
+PLUGDEV_GID=$(getent group plugdev | cut -d: -f3)
+EOF
+```
 
-**Starting at boot.** The D-Bus and PipeWire sockets live in `/run/user/1000`, which only exists while you're logged in unless lingering is enabled. With lingering, Docker starts TabLink at boot. It waits for the tablet and works once you've logged in to GNOME. Without lingering, run `docker compose up -d` after logging in.
+**Starting at boot.** The D-Bus and PipeWire sockets live in `/run/user/<uid>`, which only exists while you're logged in unless lingering is enabled. With lingering, Docker starts TabLink at boot. It waits for the tablet and works once you've logged in to GNOME. Without lingering, run `docker compose up -d` after logging in.
 
 ## Run natively
 Setup (once):

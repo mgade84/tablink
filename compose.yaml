@@ -1,7 +1,9 @@
 # docker compose up -d --build
-# Assumes the desktop user is uid/gid 1000 (the first user on Ubuntu).
-# Host options (e.g. --position left) go in a .env file next to this one:
-#   TABLINK_ARGS=--position left
+# Settings go in a .env file next to this one. All are optional; the defaults fit
+# the first user on Ubuntu 24.04:
+#   TABLINK_ARGS=--position left       host options
+#   TABLINK_UID=1000  TABLINK_GID=1000  your desktop user: id -u / id -g
+#   RENDER_GID=992  VIDEO_GID=44  PLUGDEV_GID=46   getent group render video plugdev
 services:
   # Build-only: an image holding just the APK, consumed by the host image below.
   app:
@@ -25,13 +27,13 @@ services:
       options: { max-size: 10m, max-file: "3" }
     init: true                 # forwards stop signals and reaps adb's child processes
     network_mode: host         # loopback port 27183 for `adb reverse`, and the adb server on 5037
-    user: "1000:1000"
+    user: "${TABLINK_UID:-1000}:${TABLINK_GID:-1000}"   # D-Bus checks the uid
     security_opt:
       - apparmor=unconfined    # Docker's default AppArmor profile blocks talking to the session D-Bus
     group_add:
-      - "44"                   # video: /dev/dri/card*
-      - "992"                  # render: /dev/dri/renderD* (check: getent group render)
-      - "46"                   # plugdev: USB access to the tablet
+      - "${VIDEO_GID:-44}"      # /dev/dri/card*
+      - "${RENDER_GID:-992}"    # /dev/dri/renderD*; varies between machines
+      - "${PLUGDEV_GID:-46}"    # USB access to the tablet
     devices:
       - /dev/dri:/dev/dri      # VAAPI hardware encoding
     device_cgroup_rules:
@@ -40,12 +42,12 @@ services:
       - /dev/bus/usb:/dev/bus/usb
       # The desktop session: D-Bus (Mutter APIs) and PipeWire (the screen video).
       - type: bind
-        source: /run/user/1000/bus
-        target: /run/user/1000/bus
+        source: /run/user/${TABLINK_UID:-1000}/bus
+        target: /run/tablink/bus
         bind: { create_host_path: false }
       - type: bind
-        source: /run/user/1000/pipewire-0
-        target: /run/user/1000/pipewire-0
+        source: /run/user/${TABLINK_UID:-1000}/pipewire-0
+        target: /run/tablink/pipewire-0
         bind: { create_host_path: false }
       # Reuse the desktop's adb key so the tablet doesn't ask to authorize a new computer.
       - ${HOME}/.android:/home/tablink/.android

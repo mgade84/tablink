@@ -40,18 +40,22 @@ def describe(node_id, width, height, fps, bitrate_kbps, encoder):
         enc = (
             "videoconvert n-threads=4 ! video/x-raw,format=I420 ! "
             f"x264enc tune=zerolatency speed-preset=ultrafast bitrate={bitrate_kbps} "
-            f"key-int-max={gop} bframes=0"
+            # x264 only sends SPS/PPS once unless told to repeat them on every
+            # keyframe (VAAPI always does); the app needs them whenever it resumes.
+            f"key-int-max={gop} bframes=0 option-string=repeat-headers=1"
         )
     # Constrained baseline tells the decoder there is no frame reordering, so it
     # can output each frame as soon as it is decoded. With High profile the
     # Qualcomm decoder holds frames back, which shows up as lag and as a stuck
     # last frame when the screen goes static.
-    profile = "video/x-h264,profile=constrained-baseline ! "
+    # One caps filter right after the encoder (GStreamer can't parse two in a row).
+    out_caps = "video/x-h264,profile=constrained-baseline,stream-format=byte-stream,alignment=au"
     # Android decoders want SPS/PPS before every IDR so a late (re)start works.
+    # Both encoders already do that; h264parse (gstreamer1.0-plugins-bad, which
+    # drags in GTK and more) is only used when it happens to be installed.
     parse = "h264parse config-interval=-1 ! " if have("h264parse") else ""
-    out_caps = "video/x-h264,stream-format=byte-stream,alignment=au"
     sink = "appsink name=sink sync=false emit-signals=true max-buffers=4 drop=false"
-    return f"{src} ! {raw_caps} ! queue max-size-buffers=2 leaky=downstream ! {enc} ! {profile}{parse}{out_caps} ! {sink}"
+    return f"{src} ! {raw_caps} ! queue max-size-buffers=2 leaky=downstream ! {enc} ! {out_caps} ! {parse}{sink}"
 
 
 class LatencyStats:

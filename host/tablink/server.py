@@ -2,9 +2,14 @@
 
 Threads:
   main      GLib main loop (D-Bus signals, GStreamer bus messages)
-  acceptor  accepts one client at a time and runs a Session for it
-  per client: a reader thread (PING/PONG, EOF detection); the session's own
-            thread drains the frame queue into the socket.
+  acceptor  accepts connections; each gets its own Session thread
+  per client: the Session thread authenticates the HELLO (HELLO_TIMEOUT), takes
+            over from any previous session, then drains the frame queue into the
+            socket; a reader thread handles PING/PONG, input and EOF.
+
+Only one session streams at a time. A client that never sends a valid HELLO
+can't hold anything up: it only ever occupies its own thread, for at most
+HELLO_TIMEOUT.
 """
 
 import hmac
@@ -26,7 +31,7 @@ from .pipeline import EncoderPipeline
 
 log = logging.getLogger(__name__)
 
-HELLO_TIMEOUT = 5.0
+HELLO_TIMEOUT = 1.0  # the app sends HELLO right after connecting
 PING_INTERVAL = 2.0
 FRAME_QUEUE = 6  # ~100ms at 60fps; beyond that we drop until the next keyframe
 
@@ -44,6 +49,7 @@ class Session:
         self.opts = opts
         self.frames = queue.Queue(maxsize=FRAME_QUEUE)
         self.stopped = threading.Event()
+        self.finished = threading.Event()  # run() has cleaned up
         self.waiting_for_keyframe = True
         self.visible = True  # the app is in the foreground and showing video
         self.monitor_started = False
@@ -53,9 +59,12 @@ class Session:
 
     # -- lifecycle -------------------------------------------------------
 
-    def run(self):
+    def run(self, takeover=lambda session: None):
+        """Serve this client. `takeover` is called once it has authenticated, to
+        end any other session before this one creates its monitor."""
         try:
             hello = self._read_hello()
+            takeover(self)
             width = even(round(hello["width"] * self.opts.scale))
             height = even(round(hello["height"] * self.opts.scale))
             log.info("client %s: %dx%d @%ddpi (proto %d) -> monitor %dx%d",
@@ -91,6 +100,15 @@ class Session:
             log.exception("client %s: unexpected error", self.addr)
         finally:
             self.close()
+            self.finished.set()
+
+    def end(self):
+        """Ask a running session to finish (from another thread); run() cleans up."""
+        self.stopped.set()
+        try:
+            self.conn.shutdown(socket.SHUT_RDWR)  # unblocks reads and sends
+        except OSError:
+            pass
 
     def close(self):
         self.stopped.set()
@@ -249,6 +267,8 @@ class Server:
     def __init__(self, opts):
         self.opts = opts
         self.loop = GLib.MainLoop()
+        self._lock = threading.Lock()
+        self._active = None  # the session that passed authentication last
         # Shared secret the app must present. host/scripts generate it and pass it to
         # both the host (TABLINK_TOKEN) and the app (am start --es ...TOKEN).
         opts.token = os.environ.get("TABLINK_TOKEN", "")
@@ -258,20 +278,31 @@ class Server:
                         "adb shell am start -n dev.mgade.tablink/.MainActivity "
                         "--es dev.mgade.tablink.extra.TOKEN %s", opts.token)
 
+    def _takeover(self, session):
+        """An authenticated client replaces the current session (e.g. the app
+        reconnected while the old socket still looked alive)."""
+        with self._lock:
+            old, self._active = self._active, session
+        if old and not old.finished.is_set():
+            log.info("client %s replaces %s", session.addr, old.addr)
+            old.end()
+            old.finished.wait(10)
+
     def _acceptor(self, sock):
         while True:
             conn, addr = sock.accept()
             conn.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
             conn.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 1 << 20)
             log.debug("connection from %s", addr)
-            # One tablet at a time: handle this client to completion.
-            Session(conn, addr, self.opts).run()
+            session = Session(conn, addr, self.opts)
+            threading.Thread(target=session.run, args=(self._takeover,),
+                             name=f"session-{addr[1]}", daemon=True).start()
 
     def serve(self):
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         sock.bind(("127.0.0.1", self.opts.port))
-        sock.listen(1)
+        sock.listen(8)
         log.info("listening on 127.0.0.1:%d (run `adb reverse tcp:%d tcp:%d`)",
                  self.opts.port, self.opts.port, self.opts.port)
         threading.Thread(target=self._acceptor, args=(sock,), name="acceptor", daemon=True).start()
