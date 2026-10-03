@@ -1,6 +1,7 @@
 """GStreamer pipeline: Mutter virtual monitor (PipeWire) -> H.264 access units."""
 
 import logging
+import threading
 import time
 
 import gi
@@ -26,10 +27,16 @@ def pick_encoder(requested):
     return "x264"
 
 
-def describe(node_id, width, height, fps, bitrate_kbps, encoder):
+def describe(node_id, width, height, fps, bitrate_kbps, encoder, zero_copy=False):
+    """zero_copy (VAAPI only): take Mutter's frames as DMA-BUF straight into
+    vaapipostproc instead of copying each one into system memory first."""
     gop = fps * 2
-    src = f"pipewiresrc path={node_id} do-timestamp=true keepalive-time=1000 always-copy=true"
-    raw_caps = f"video/x-raw,width={width},height={height},max-framerate={fps}/1"
+    src = f"pipewiresrc path={node_id} do-timestamp=true keepalive-time=1000"
+    if zero_copy:
+        raw_caps = f"video/x-raw(memory:DMABuf),width={width},height={height},max-framerate={fps}/1"
+    else:
+        src += " always-copy=true"
+        raw_caps = f"video/x-raw,width={width},height={height},max-framerate={fps}/1"
     if encoder == "vaapi":
         enc = (
             "vaapipostproc ! video/x-raw(memory:VASurface),format=NV12 ! "
@@ -86,23 +93,54 @@ class EncoderPipeline:
 
     def __init__(self, node_id, width, height, fps, bitrate_kbps, encoder, on_frame, on_error):
         self.encoder = pick_encoder(encoder)
-        desc = describe(node_id, width, height, fps, bitrate_kbps, self.encoder)
+        self._args = (node_id, width, height, fps, bitrate_kbps, self.encoder)
+        # Zero-copy capture when it can work; falls back to copying if the first
+        # attempt fails to negotiate (older PipeWire/Mutter, other drivers).
+        self.zero_copy = self.encoder == "vaapi"
+        self._got_frame = False
+        self._lock = threading.Lock()
+        self._generation = 0  # bumped per build; bus messages from older builds are ignored
+        self._on_frame = on_frame
+        self._on_error = on_error
+        self._latency = LatencyStats("capture→encoded")
+        self._build()
+
+    def _build(self):
+        self._generation += 1
+        desc = describe(*self._args, zero_copy=self.zero_copy)
         log.debug("pipeline: %s", desc)
         self.pipeline = Gst.parse_launch(desc)
         self._sink = self.pipeline.get_by_name("sink")
         self._sink.connect("new-sample", self._on_sample)
-        self._on_frame = on_frame
-        self._on_error = on_error
-        self._latency = LatencyStats("capture→encoded")
         bus = self.pipeline.get_bus()
         bus.add_signal_watch()
-        bus.connect("message::error", self._on_bus_error)
+        bus.connect("message::error", self._on_bus_error, self._generation)
         bus.connect("message::eos", lambda *_: self._on_error("end of stream"))
 
     def start(self):
         if self.pipeline.set_state(Gst.State.PLAYING) == Gst.StateChangeReturn.FAILURE:
-            raise RuntimeError("pipeline failed to start")
-        log.info("encoding with %s", self.encoder)
+            if not self._fall_back("pipeline failed to start", self._generation):
+                raise RuntimeError("pipeline failed to start")
+            return
+        log.info("encoding with %s (%s)", self.encoder,
+                 "zero-copy DMA-BUF capture" if self.zero_copy else "copying frames")
+
+    def _fall_back(self, reason, generation):
+        """Switch from zero-copy to copying frames, once and only before the first
+        frame. A failed negotiation shows up both as start() failing and as a bus
+        error, so both paths come through here. Returns True if the failure is
+        handled (now copying, or it came from a pipeline already replaced)."""
+        with self._lock:
+            if generation != self._generation:
+                return True
+            if not self.zero_copy or self._got_frame:
+                return False
+            log.info("zero-copy capture not available (%s); copying frames instead", reason)
+            self.stop()
+            self.zero_copy = False
+            self._build()
+        self.start()
+        return True
 
     def stop(self):
         self.pipeline.set_state(Gst.State.NULL)
@@ -132,10 +170,14 @@ class EncoderPipeline:
                 self._latency.add((now - pts) / 1e6)
         pts_us = pts // 1000 if pts != Gst.CLOCK_TIME_NONE else time.monotonic_ns() // 1000
         keyframe = not buf.has_flags(Gst.BufferFlags.DELTA_UNIT)
+        self._got_frame = True
         self._on_frame(pts_us, data, keyframe)
         return Gst.FlowReturn.OK
 
-    def _on_bus_error(self, _bus, msg):
+    def _on_bus_error(self, _bus, msg, generation):
         err, dbg = msg.parse_error()
         log.debug("gstreamer debug: %s", dbg)
+        # Typically "not-negotiated": this system can't share DMA-BUFs here.
+        if self._fall_back(err.message, generation):
+            return
         self._on_error(f"{msg.src.get_name()}: {err.message}")

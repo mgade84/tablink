@@ -13,7 +13,7 @@ GNOME virtual monitor ─▶ PipeWire ─▶ VAAPI H.264 ─▶ TCP 127.0.0.1:27
 Mutter RemoteDesktop ◀── touch events ◀──── Tablet app (MediaCodec, low latency)
 ```
 
-- `host/` (Python): asks Mutter (`org.gnome.Mutter.ScreenCast.RecordVirtual`) to create a virtual monitor the size of the tablet's screen, encodes it with GStreamer, and serves it on loopback. Touches from the tablet are injected into that monitor through a linked `org.gnome.Mutter.RemoteDesktop` session. Its `scripts/` install the app on the tablet whenever it's plugged in and start the host.
+- `host/` (Python): asks Mutter (`org.gnome.Mutter.ScreenCast.RecordVirtual`) to create a virtual monitor the size of the tablet's screen, encodes it with GStreamer, and serves it on loopback. With VAAPI, frames go from GNOME to the encoder as GPU buffers (DMA-BUF) without being copied. If a system can't do that, it automatically copies them instead, and the log says which. Touches from the tablet are injected into that monitor through a linked `org.gnome.Mutter.RemoteDesktop` session. Its `scripts/` install the app on the tablet whenever it's plugged in and start the host.
 - `android/` (Kotlin): a fullscreen app that connects to `127.0.0.1:27183` (forwarded over USB by `adb reverse`), sends its screen size, decodes the stream onto a `SurfaceView`, and sends touches back.
 
 The two folders are independent projects, each with its own scripts and `Dockerfile`. The virtual monitor works like a real one. You can arrange it in **Settings → Displays**, and it goes away when the tablet disconnects.
